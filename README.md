@@ -4,7 +4,7 @@
 
 An educational, expandable coding‑agent harness built in Python.
 
-It started as a single‑file agent built from notes and experiments, and grew into a full learning playground inspired by Codex, Open Code, Claude Code, and Pi. The goal here is simple: **learn how these systems work by building one** and then expand it with more bells and whistles over time. It’s not the best, but it’s mine.
+It started as a single‑file agent built from notes and experiments, and grew into a full learning playground inspired by Codex, Open Code, Claude Code, and [Pi](https://github.com/badlogic/pi-mono). The goal here is simple: **learn how these systems work by building one** and then expand it with more bells and whistles over time. It’s not the best, but it’s mine.
 
 ## Why this exists
 

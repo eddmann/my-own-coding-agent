@@ -1,0 +1,49 @@
+[project]
+name = "my-own-coding-agent"
+version = "0.1.0"
+description = "A Python AI coding agent for learning"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "textual>=6.6.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
+    "typer>=0.15.0",
+    "pyyaml>=6.0.2",
+    "tiktoken>=0.8.0",
+]
+
+[project.scripts]
+agent = "agent.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "types-pyyaml>=6.0.12.20250915",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent"]

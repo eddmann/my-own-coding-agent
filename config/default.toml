@@ -1,0 +1,46 @@
+# Default configuration for my-own-coding-agent
+# Copy this to ~/.agent/config.toml and customize
+
+# Default provider to use
+provider = "openai"
+
+# Default model
+model = "gpt-4o"
+
+# Maximum tokens for context window
+context_max_tokens = 128000
+
+# Maximum tokens for a single model response
+max_output_tokens = 8192
+
+# Temperature for generation (0.0-1.0)
+temperature = 0.7
+
+# Directory for session files
+# session_dir = "~/.agent/sessions"
+
+# Additional directories to search for skills
+# skills_dirs = ["~/.agent/skills", "./skills"]
+
+# Provider configurations
+# Uncomment and configure as needed
+
+[providers.openai]
+base_url = "https://api.openai.com"
+model = "gpt-4o"
+# api_key set via OPENAI_API_KEY environment variable
+
+[providers.ollama]
+base_url = "http://localhost:11434/v1"
+model = "llama3.2"
+api_key = "ollama"
+
+[providers.openrouter]
+base_url = "https://openrouter.ai/api/v1"
+model = "anthropic/claude-3.5-sonnet"
+# api_key set via OPENROUTER_API_KEY environment variable
+
+[providers.groq]
+base_url = "https://api.groq.com/openai/v1"
+model = "llama-3.3-70b-versatile"
+# api_key set via GROQ_API_KEY environment variable

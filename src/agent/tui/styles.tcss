@@ -1,0 +1,249 @@
+/* Minimal Nord-inspired theme for my-own-coding-agent */
+
+Screen {
+    background: $background;
+}
+
+#main-container {
+    height: 1fr;
+}
+
+#chat-view {
+    height: 1fr;
+    padding: 1 0;
+    scrollbar-size: 1 1;
+}
+
+.message-user {
+    color: $foreground;
+    background: $surface;
+    margin: 1 0 0 0;
+    padding: 1 2;
+    width: 100%;
+}
+
+.message-assistant {
+    color: $foreground-muted;
+    margin: 1 0;
+    padding: 0 2;
+}
+
+.message-system {
+    color: $foreground-disabled;
+    margin: 1 0;
+    padding: 0 2;
+}
+
+.tool-widget {
+    margin: 1 2;
+    padding: 1 2;
+    background: $surface;
+    border: solid $secondary;
+    border-title-color: $secondary;
+    border-title-style: bold;
+}
+
+.tool-widget.tool-collapsed {
+    height: auto;
+    min-height: 1;
+    padding: 0 2;
+}
+
+.tool-widget.tool-collapsed:hover {
+    background: $panel;
+}
+
+.skill-widget {
+    margin: 1 2;
+    padding: 1 2;
+    background: $surface;
+    border: solid $accent;
+    border-title-color: $accent;
+}
+
+.skill-widget.skill-collapsed {
+    height: auto;
+    min-height: 1;
+    padding: 0 2;
+}
+
+.skill-widget.skill-collapsed:hover {
+    background: $panel;
+}
+
+.tool-result {
+    color: $foreground-muted;
+}
+
+.thinking-widget {
+    margin: 1 2;
+    padding: 1 2;
+    background: $surface;
+    border: dashed $warning;
+    border-title-color: $warning;
+    border-title-style: italic;
+    color: $foreground-muted;
+}
+
+#input-container {
+    height: auto;
+    dock: bottom;
+    padding: 1 2;
+    background: $surface;
+}
+
+#prompt-input {
+    height: auto;
+}
+
+#prompt-inner {
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+#prompt-inner:focus {
+    border: none;
+}
+
+#suggestions {
+    overlay: screen;
+    height: auto;
+    max-height: 10;
+    width: 40;
+    border: solid $secondary;
+    background: $surface;
+    offset: 0 -13;
+}
+
+#suggestions > .option-list--option-highlighted {
+    background: $accent;
+}
+
+#status-line {
+    dock: bottom;
+    height: 1;
+    background: $panel;
+    color: $foreground-muted;
+    padding: 0 2;
+}
+
+#status-left {
+    width: 1fr;
+}
+
+#status-right {
+    width: auto;
+    text-align: right;
+}
+
+/* Context Modal */
+ContextModal {
+    align: center middle;
+}
+
+#context-modal {
+    width: 90%;
+    height: 85%;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#context-title {
+    dock: top;
+    height: 1;
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    padding: 0 0 1 0;
+}
+
+#context-tabs {
+    height: 1fr;
+}
+
+#context-tabs > ContentSwitcher {
+    height: 1fr;
+}
+
+#context-tabs TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+#context-tabs VerticalScroll {
+    height: 1fr;
+    scrollbar-size: 1 1;
+}
+
+#summary-content,
+#messages-content,
+#system-content {
+    padding: 1 1;
+}
+
+#context-hint {
+    dock: bottom;
+    height: 1;
+    text-align: center;
+    color: $foreground-muted;
+}
+
+/* Model Modal */
+ModelModal {
+    align: center middle;
+}
+
+#model-modal {
+    width: 80%;
+    height: 70%;
+    max-width: 70;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#model-title {
+    dock: top;
+    height: 1;
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    padding: 0 0 1 0;
+}
+
+#model-content {
+    height: 1fr;
+    scrollbar-size: 1 1;
+}
+
+.section-header {
+    margin: 1 0 0 0;
+}
+
+#model-select {
+    width: 100%;
+    margin: 0 0 1 0;
+}
+
+#thinking-radio {
+    width: 100%;
+    margin: 0 0 1 0;
+}
+
+#summary-info {
+    margin: 0 0 1 0;
+}
+
+#save-btn {
+    width: 100%;
+    margin: 1 0 0 0;
+}
+
+#model-hint {
+    dock: bottom;
+    height: 1;
+    text-align: center;
+    color: $foreground-muted;
+}

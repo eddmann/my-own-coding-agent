@@ -153,6 +153,21 @@ class ContextCompactionEvent:
     type: str = field(default="context_compaction", init=False)
 
 
+# --- Model Events ---
+
+
+@dataclass(slots=True)
+class ModelSelectEvent:
+    """Emitted when the active model changes."""
+
+    provider: str = ""
+    model: str = ""
+    previous_provider: str | None = None
+    previous_model: str | None = None
+    source: str = "set"  # "set" | "cycle" | "restore"
+    type: str = field(default="model_select", init=False)
+
+
 # Union type for all events
 AgentEvent = (
     AgentStartEvent
@@ -169,4 +184,5 @@ AgentEvent = (
     | ThinkingDeltaEvent
     | ThinkingEndEvent
     | ContextCompactionEvent
+    | ModelSelectEvent
 )

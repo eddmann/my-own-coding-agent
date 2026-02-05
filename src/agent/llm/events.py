@@ -196,6 +196,15 @@ class ToolCallEndEvent:
 
 
 @dataclass(slots=True)
+class AssistantMetadataEvent:
+    """Provider-specific metadata for the assistant message."""
+
+    type: Literal["assistant_metadata"] = "assistant_metadata"
+    metadata: dict[str, Any] = field(default_factory=dict)
+    partial: PartialMessage = field(default_factory=PartialMessage)
+
+
+@dataclass(slots=True)
 class DoneEvent:
     """Stream completed successfully."""
 
@@ -224,6 +233,7 @@ StreamEvent = (
     | ToolCallStartEvent
     | ToolCallDeltaEvent
     | ToolCallEndEvent
+    | AssistantMetadataEvent
     | DoneEvent
     | ErrorEvent
 )

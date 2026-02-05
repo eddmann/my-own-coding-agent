@@ -9,7 +9,7 @@ deps: ## Install dependencies
 
 ##@ Testing
 test: ## Run tests
-	@uv run pytest -v
+	@uv run python -m pytest -v
 
 can-release: lint test ## Run all checks
 

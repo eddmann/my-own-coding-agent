@@ -22,6 +22,7 @@ import httpx
 from agent.core.config import THINKING_BUDGETS, ThinkingLevel
 from agent.core.message import Message, Role
 from agent.llm.events import (
+    AssistantMetadataEvent,
     Cost,
     DoneEvent,
     ErrorEvent,
@@ -155,8 +156,13 @@ class AnthropicProvider:
         # Add thinking block if present
         if msg.thinking:
             block: dict[str, Any] = {"type": "thinking", "thinking": msg.thinking.text}
-            if msg.thinking.signature:
-                block["signature"] = msg.thinking.signature
+            signature = None
+            if isinstance(msg.provider_metadata, dict):
+                meta = msg.provider_metadata.get("anthropic")
+                if isinstance(meta, dict):
+                    signature = meta.get("thinking_signature")
+            if signature:
+                block["signature"] = signature
             content_blocks.append(block)
 
         # Add text content
@@ -460,6 +466,17 @@ class AnthropicProvider:
                                     partial=output,
                                 )
                             )
+                            if current_thinking_signature:
+                                stream.push(
+                                    AssistantMetadataEvent(
+                                        metadata={
+                                            "anthropic": {
+                                                "thinking_signature": current_thinking_signature
+                                            }
+                                        },
+                                        partial=output,
+                                    )
+                                )
                             current_thinking = ""
                             current_thinking_signature = None
 

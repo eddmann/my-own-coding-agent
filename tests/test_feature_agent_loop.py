@@ -10,8 +10,12 @@ from agent.core.agent import Agent
 from agent.core.config import Config
 from agent.core.message import ToolResult
 from agent.llm.events import (
+    AssistantMetadataEvent,
     DoneEvent,
     PartialMessage,
+    TextDeltaEvent,
+    TextEndEvent,
+    TextStartEvent,
     ThinkingDeltaEvent,
     ThinkingEndEvent,
     ThinkingStartEvent,
@@ -109,3 +113,29 @@ async def test_agent_records_thinking_content(temp_dir):
     assert assistant_messages
     assert assistant_messages[-1].thinking is not None
     assert "step1" in assistant_messages[-1].thinking.text
+
+
+@pytest.mark.asyncio
+async def test_agent_merges_provider_metadata(temp_dir):
+    events = [
+        TextStartEvent(content_index=0),
+        TextDeltaEvent(content_index=0, delta="Hello"),
+        TextEndEvent(content_index=0, text="Hello"),
+        AssistantMetadataEvent(metadata={"openai_responses": {"output_item_id": "msg_1"}}),
+        AssistantMetadataEvent(
+            metadata={"openai_responses": {"reasoning_item": '{"type":"reasoning"}'}}
+        ),
+        DoneEvent(message=PartialMessage()),
+    ]
+    agent, _ = build_agent(temp_dir, [events])
+
+    chunks = []
+    async for chunk in agent.run("Hi"):
+        chunks.append(chunk)
+
+    assistant_messages = [m for m in agent.session.messages if m.role.value == "assistant"]
+    assert assistant_messages
+    provider_metadata = assistant_messages[-1].provider_metadata
+    assert provider_metadata
+    assert provider_metadata["openai_responses"]["output_item_id"] == "msg_1"
+    assert provider_metadata["openai_responses"]["reasoning_item"] == '{"type":"reasoning"}'

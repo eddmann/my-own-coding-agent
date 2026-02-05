@@ -77,7 +77,6 @@ class ThinkingContent(BaseModel):
     """
 
     text: str = ""
-    signature: str | None = None  # For replay (Anthropic redacted thinking)
 
 
 class Message(BaseModel):
@@ -89,6 +88,9 @@ class Message(BaseModel):
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None  # For tool results
     thinking: ThinkingContent | None = None  # For reasoning/thinking content
+    provider_metadata: dict[str, Any] | None = None  # Provider-specific artifacts
+    provider: str | None = None  # Provider name for assistant messages
+    model: str | None = None  # Model ID for assistant messages
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     parent_id: str | None = None  # For branching
 

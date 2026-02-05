@@ -1,7 +1,10 @@
 """Tests for the LLM module."""
 
-from agent.core.message import Message, Role, ToolCall
+import json
+
+from agent.core.message import Message, Role, ThinkingContent, ToolCall
 from agent.llm import OpenAICompatibleProvider
+from agent.llm.openai import OpenAIResponsesProvider
 
 
 class TestOpenAICompatibleProvider:
@@ -76,6 +79,84 @@ class TestAnthropicProvider:
         assert system_prompt.index("System A") < system_prompt.index("System B")
         # Ensure non-system messages still passed through
         assert any(m["role"] == "user" for m in api_messages)
+
+    def test_thinking_signature_is_included_from_metadata(self):
+        """Ensure thinking signatures are sourced from provider metadata."""
+        from agent.llm.anthropic import AnthropicProvider
+
+        provider = AnthropicProvider(api_key="test", model="claude-sonnet-4-20250514")
+        msg = Message(
+            role=Role.ASSISTANT,
+            content="Hello",
+            thinking=ThinkingContent(text="thoughts"),
+            provider_metadata={"anthropic": {"thinking_signature": "sig_123"}},
+        )
+
+        content = provider._build_assistant_content(msg)
+
+        assert isinstance(content, list)
+        thinking_block = next(block for block in content if block["type"] == "thinking")
+        assert thinking_block["signature"] == "sig_123"
+
+
+class TestOpenAIResponsesProvider:
+    """Tests for OpenAI Responses provider conversion."""
+
+    def test_replays_reasoning_and_output_item_metadata(self):
+        """Ensure provider metadata is converted into responses input items."""
+        provider = OpenAIResponsesProvider(
+            api_key="test-key",
+            model="gpt-5.2-codex",
+        )
+        reasoning_item = {"type": "reasoning", "summary": [{"text": "r"}]}
+        assistant_msg = Message(
+            role=Role.ASSISTANT,
+            content="Hello",
+            provider_metadata={
+                "openai_responses": {
+                    "output_item_id": "msg_123",
+                    "reasoning_item": json.dumps(reasoning_item),
+                }
+            },
+        )
+        messages = [
+            Message.system("System"),
+            Message.user("Hi"),
+            assistant_msg,
+        ]
+
+        output = provider._convert_responses_messages(messages)
+
+        assistant_items = [item for item in output if item.get("type") in ("reasoning", "message")]
+        assert assistant_items[0]["type"] == "reasoning"
+        assert assistant_items[1]["type"] == "message"
+        assert assistant_items[1]["id"] == "msg_123"
+
+    def test_replays_tool_call_item_id(self):
+        """Ensure tool call item ids are preserved for replay."""
+        provider = OpenAIResponsesProvider(
+            api_key="test-key",
+            model="gpt-5.2-codex",
+        )
+        tool_call = ToolCall(id="call_123|fc_abc", name="read", arguments={"path": "/tmp/x"})
+        assistant_msg = Message(
+            role=Role.ASSISTANT,
+            content="",
+            tool_calls=[tool_call],
+            model="gpt-5.2-codex",
+        )
+        messages = [
+            Message.system("System"),
+            Message.user("Hi"),
+            assistant_msg,
+        ]
+
+        output = provider._convert_responses_messages(messages)
+
+        function_calls = [item for item in output if item.get("type") == "function_call"]
+        assert function_calls
+        assert function_calls[0]["call_id"] == "call_123"
+        assert function_calls[0]["id"] == "fc_abc"
 
 
 class TestToolCall:

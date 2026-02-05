@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from agent.core.config import Config, ThinkingLevel
+from agent.core.config import (
+    Config,
+    ThinkingLevel,
+    clamp_thinking_level,
+    get_available_thinking_levels,
+)
 from agent.core.context import ContextManager
 from agent.core.context_loader import load_all_context
 from agent.core.events import (
@@ -16,6 +22,7 @@ from agent.core.events import (
     MessageEndEvent,
     MessageStartEvent,
     MessageUpdateEvent,
+    ModelSelectEvent,
     ThinkingDeltaEvent,
     ThinkingEndEvent,
     ThinkingStartEvent,
@@ -52,7 +59,6 @@ from agent.tools.registry import ToolRegistry
 from agent.tools.write import WriteTool
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import AsyncIterator, Callable
 
     from agent.llm.provider import LLMProvider
@@ -100,7 +106,9 @@ class Agent:
         self._cwd = cwd or Path.cwd()
         self.provider = self._create_provider(config)
         self.tools = ToolRegistry()
-        self.session = session or Session.new(config.session_dir)
+        self.session = session or Session.new(
+            config.session_dir, provider=config.provider, model=config.model
+        )
         self.context = ContextManager(self.provider, config.context_max_tokens)
         self._total_tokens = 0
         self._listeners: set[Callable[[AgentEvent], Any]] = set()
@@ -133,6 +141,9 @@ class Agent:
         ]
         for tool in tools:
             self.tools.register(tool)
+
+        # Restore model selection from session (if any)
+        self._restore_model_from_session()
 
         # Add system prompt if this is a new session
         if not self.session.messages:
@@ -208,9 +219,40 @@ class Agent:
 
     def new_session(self) -> None:
         """Start a fresh session and reinitialize system prompt."""
-        self.session = Session.new(self.config.session_dir)
+        self.session = Session.new(
+            self.config.session_dir, provider=self.config.provider, model=self.config.model
+        )
         self._total_tokens = 0
         self._init_system_prompt()
+
+    def set_model(self, model: str, source: str = "set") -> None:
+        """Switch to a new model and persist selection."""
+        if not model or model == self.provider.model:
+            return
+
+        previous_model = self.provider.model
+        self.provider.model = model
+        self.config.model = model
+
+        # Reset encoder for providers that cache per-model encoders
+        if hasattr(self.provider, "_encoder"):
+            cast("Any", self.provider)._encoder = None
+
+        # Clamp thinking level to model capabilities
+        available = get_available_thinking_levels(model)
+        self.config.thinking_level = clamp_thinking_level(self.config.thinking_level, available)
+
+        # Persist selection in session entries
+        self.session.append_model_change(self.config.provider, model)
+
+        # Emit model selection event
+        self._emit_model_select(
+            provider=self.config.provider,
+            model=model,
+            previous_provider=self.config.provider,
+            previous_model=previous_model,
+            source=source,
+        )
 
     @property
     def total_tokens(self) -> int:
@@ -257,6 +299,67 @@ class Agent:
 
         # Also emit to extensions
         await self._extension_runner.emit_agent_event(event)
+
+    def _emit_model_select(
+        self,
+        provider: str,
+        model: str,
+        previous_provider: str | None,
+        previous_model: str | None,
+        source: str,
+    ) -> None:
+        """Emit a model_select event if possible."""
+        if previous_model == model and previous_provider == provider:
+            return
+
+        event = ModelSelectEvent(
+            provider=provider,
+            model=model,
+            previous_provider=previous_provider,
+            previous_model=previous_model,
+            source=source,
+        )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        loop.create_task(self._emit(event))
+
+    def _restore_model_from_session(self) -> None:
+        """Restore model selection from session entries (if available)."""
+        selection = self.session.get_model_selection()
+        if not selection:
+            return
+
+        provider, model = selection
+        if not model:
+            return
+        if provider and provider != self.config.provider:
+            return
+
+        previous_model = self.config.model
+
+        self.config.model = model
+        self.provider.model = model
+
+        # Reset encoder for providers that cache per-model encoders
+        if hasattr(self.provider, "_encoder"):
+            cast("Any", self.provider)._encoder = None
+
+        # Clamp thinking level to model capabilities
+        available = get_available_thinking_levels(model)
+        self.config.thinking_level = clamp_thinking_level(self.config.thinking_level, available)
+
+        # Emit model selection event (restore)
+        self._emit_model_select(
+            provider=provider or self.config.provider,
+            model=model,
+            previous_provider=self.config.provider,
+            previous_model=previous_model,
+            source="restore",
+        )
 
     async def load_extensions(self, paths: list[Path] | None = None) -> list[str]:
         """Load extensions from config or specified paths.
@@ -434,7 +537,7 @@ class Agent:
 
                 response_content = ""
                 thinking_content = ""
-                thinking_signature: str | None = None
+                provider_metadata: dict[str, Any] = {}
                 tool_calls: list[ToolCall] = []
                 thinking_started = False
                 message_started = False
@@ -485,11 +588,6 @@ class Agent:
                             await self._emit(ThinkingDeltaEvent(delta=event.delta))
                             yield ThinkingContent(text=event.delta)
 
-                        case "thinking_end":
-                            # Capture signature if present
-                            if hasattr(event, "signature") and event.signature:
-                                thinking_signature = event.signature
-
                         case "toolcall_start":
                             # Yield early notification that tool call is starting
                             yield ToolCallStart(
@@ -507,6 +605,16 @@ class Agent:
                             )
                             tool_calls.append(tc)
                             yield tc
+
+                        case "assistant_metadata":
+                            if hasattr(event, "metadata") and isinstance(event.metadata, dict):
+                                for key, value in event.metadata.items():
+                                    if isinstance(value, dict) and isinstance(
+                                        provider_metadata.get(key), dict
+                                    ):
+                                        provider_metadata[key].update(value)
+                                    else:
+                                        provider_metadata[key] = value
 
                         case "error":
                             stream_error = event.message.error_message or "LLM stream error"
@@ -531,16 +639,16 @@ class Agent:
 
                 # Build message with thinking
                 thinking_obj = (
-                    ThinkingContent(text=thinking_content, signature=thinking_signature)
-                    if thinking_content
-                    else None
+                    ThinkingContent(text=thinking_content or "") if thinking_content else None
                 )
-
                 assistant_msg = Message(
                     role=Role.ASSISTANT,
                     content=response_content,
                     tool_calls=tool_calls if tool_calls else None,
                     thinking=thinking_obj,
+                    provider_metadata=provider_metadata or None,
+                    provider=self.config.provider,
+                    model=getattr(self.provider, "model", None),
                 )
 
                 # Save assistant response

@@ -119,6 +119,9 @@ class AgentApp(App[None]):
 
     async def on_mount(self) -> None:
         """Initialize on mount."""
+        # Ensure agent is created so session model restore applies before UI renders
+        _ = self.agent
+
         # Register and apply theme
         self.register_theme(MINIMAL_THEME)
         self.theme = "minimal"
@@ -344,14 +347,12 @@ class AgentApp(App[None]):
         chat = self.query_one("#chat-view", ChatView)
         status = self.query_one("#status-line", StatusBar)
 
-        # Update provider
-        self.agent.provider.model = model_name
-        # Reset encoder for new model if provider has one
-        if hasattr(self.agent.provider, "_encoder"):
-            self.agent.provider._encoder = None
+        # Update model via agent (persists metadata + clamps thinking)
+        self.agent.set_model(model_name)
 
         # Update UI
         status.set_model(model_name)
+        status.set_thinking(self.config.thinking_level)
         chat.add_system_message(f"switched to {model_name}")
 
     def _switch_thinking(self, level_name: str) -> None:

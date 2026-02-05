@@ -68,14 +68,6 @@ def get_model_capabilities(model: str) -> ModelCapabilities:
     """Get model-specific capabilities based on model name."""
     model_lower = model.lower()
 
-    # o1/o3 reasoning models - no temperature, use max_completion_tokens
-    if model_lower.startswith(("o1", "o3")):
-        return ModelCapabilities(
-            supports_temperature=False,
-            token_param="max_completion_tokens",
-            is_reasoning=True,
-        )
-
     # gpt-5-pro - only high reasoning, no temperature
     if model_lower.startswith("gpt-5-pro"):
         return ModelCapabilities(
@@ -85,31 +77,12 @@ def get_model_capabilities(model: str) -> ModelCapabilities:
             fixed_reasoning_effort="high",
         )
 
-    # gpt-5, gpt-5-mini, gpt-5-nano (NOT gpt-5.x) - no temperature
-    if model_lower in ("gpt-5", "gpt-5-mini", "gpt-5-nano") or (
-        model_lower.startswith(("gpt-5-mini-", "gpt-5-nano-"))
-        and not model_lower.startswith("gpt-5.")
-    ):
+    # o1/o3 + gpt-5* - no temperature, use max_completion_tokens
+    if model_lower.startswith(("o1", "o3", "gpt-5")):
         return ModelCapabilities(
             supports_temperature=False,
             token_param="max_completion_tokens",
             is_reasoning=True,
-        )
-
-    # gpt-5.1, gpt-5.2+ - supports temperature and reasoning
-    if model_lower.startswith("gpt-5."):
-        return ModelCapabilities(
-            supports_temperature=True,
-            token_param="max_completion_tokens",
-            is_reasoning=True,
-        )
-
-    # gpt-4.5, chatgpt-4o - newer format
-    if model_lower.startswith(("gpt-4.5", "chatgpt-4o")):
-        return ModelCapabilities(
-            supports_temperature=True,
-            token_param="max_completion_tokens",
-            is_reasoning=False,
         )
 
     # Default: gpt-4o, gpt-4, gpt-3.5, etc.
@@ -180,8 +153,13 @@ class OpenAIBase:
     model: str = "gpt-4o"
     temperature: float = 0.7
     max_tokens: int = 4096
+    http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
     _encoder: tiktoken.Encoding | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.http_client is not None:
+            self._client = self.http_client
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -245,16 +223,11 @@ class OpenAIBase:
         return supports_reasoning(self.model, provider="openai")
 
     async def list_models(self) -> list[str]:
-        """Fetch available models from the API."""
-        try:
-            response = await self.client.get("/v1/models")
-            response.raise_for_status()
-            data = response.json()
-            models = [m["id"] for m in data.get("data", [])]
-            return sorted(models)
-        except Exception:
-            # Return empty list if API doesn't support /v1/models
-            return []
+        """Return known OpenAI models from the local registry."""
+        from agent.llm.models import MODELS
+
+        models = [model_id for model_id, info in MODELS.items() if info.provider == "openai"]
+        return sorted(models)
 
     async def close(self) -> None:
         """Close the HTTP client."""

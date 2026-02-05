@@ -14,8 +14,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import httpx
 
@@ -48,8 +52,88 @@ from agent.llm.pricing import get_pricing
 from agent.llm.retry import RetryConfig, with_retry
 from agent.llm.stream import AssistantMessageEventStream
 
+from .oauth import load_oauth_credentials, refresh_anthropic_token, save_oauth_credentials
+
 ANTHROPIC_API_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
+
+# Claude Code emulation
+CLAUDE_CODE_VERSION = "2.1.2"
+CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+CLAUDE_CODE_TOOLS = [
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Grep",
+    "Glob",
+    "AskUserQuestion",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "KillShell",
+    "NotebookEdit",
+    "Skill",
+    "Task",
+    "TaskOutput",
+    "TodoWrite",
+    "WebFetch",
+    "WebSearch",
+]
+_CC_TOOL_LOOKUP = {name.lower(): name for name in CLAUDE_CODE_TOOLS}
+
+
+def _to_cc_tool_name(name: str) -> str:
+    return _CC_TOOL_LOOKUP.get(name.lower(), name)
+
+
+def _build_cc_tool_map(tools: list[dict[str, Any]] | None) -> dict[str, str]:
+    if not tools:
+        return {}
+    mapping: dict[str, str] = {}
+    for tool in tools:
+        func = tool.get("function", {})
+        tool_name = func.get("name")
+        if isinstance(tool_name, str):
+            mapping[_to_cc_tool_name(tool_name).lower()] = tool_name
+    return mapping
+
+
+def _is_oauth_token(api_key: str) -> bool:
+    return api_key.startswith("sk-ant-oat")
+
+
+def _is_expired(expires_ms: int | None) -> bool:
+    if expires_ms is None:
+        return False
+    return expires_ms <= int(time.time() * 1000)
+
+
+def _build_headers(api_key: str, use_oauth: bool, thinking_enabled: bool) -> dict[str, str]:
+    beta_features = ["fine-grained-tool-streaming-2025-05-14"]
+    if thinking_enabled:
+        beta_features.append("interleaved-thinking-2025-05-14")
+
+    if use_oauth:
+        beta = f"claude-code-20250219,oauth-2025-04-20,{','.join(beta_features)}"
+    else:
+        beta = ",".join(beta_features)
+
+    headers: dict[str, str] = {
+        "accept": "application/json",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "anthropic-beta": beta,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+    }
+
+    if use_oauth:
+        headers["authorization"] = f"Bearer {api_key}"
+        headers["user-agent"] = f"claude-cli/{CLAUDE_CODE_VERSION} (external, cli)"
+        headers["x-app"] = "cli"
+    else:
+        headers["x-api-key"] = api_key
+
+    return headers
 
 
 class AnthropicError(Exception):
@@ -94,7 +178,13 @@ class AnthropicProvider:
     api_key: str
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 8192
+    http_client: httpx.AsyncClient | None = field(default=None, repr=False)
+    oauth_path: Path | None = None
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.http_client is not None:
+            self._client = self.http_client
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -102,16 +192,13 @@ class AnthropicProvider:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 base_url=ANTHROPIC_API_URL,
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": ANTHROPIC_VERSION,
-                    "Content-Type": "application/json",
-                },
                 timeout=httpx.Timeout(120.0, connect=10.0),
             )
         return self._client
 
-    def _convert_messages(self, messages: list[Message]) -> tuple[str, list[dict[str, Any]]]:
+    def _convert_messages(
+        self, messages: list[Message], use_oauth: bool = False
+    ) -> tuple[str, list[dict[str, Any]]]:
         """Convert messages to Anthropic format, extracting system prompt.
 
         Anthropic format differences from OpenAI:
@@ -129,7 +216,7 @@ class AnthropicProvider:
             elif msg.role == Role.USER:
                 api_messages.append({"role": "user", "content": msg.content})
             elif msg.role == Role.ASSISTANT:
-                content = self._build_assistant_content(msg)
+                content = self._build_assistant_content(msg, use_oauth)
                 api_messages.append({"role": "assistant", "content": content})
             elif msg.role == Role.TOOL:
                 # Tool results are wrapped in user messages
@@ -149,7 +236,9 @@ class AnthropicProvider:
         system_prompt = "\n\n".join(system_prompts).strip()
         return system_prompt, api_messages
 
-    def _build_assistant_content(self, msg: Message) -> list[dict[str, Any]] | str:
+    def _build_assistant_content(
+        self, msg: Message, use_oauth: bool = False
+    ) -> list[dict[str, Any]] | str:
         """Build content array for assistant message."""
         content_blocks: list[dict[str, Any]] = []
 
@@ -172,11 +261,12 @@ class AnthropicProvider:
         # Add tool use blocks
         if msg.tool_calls:
             for tc in msg.tool_calls:
+                tool_name = _to_cc_tool_name(tc.name) if use_oauth else tc.name
                 content_blocks.append(
                     {
                         "type": "tool_use",
                         "id": tc.id,
-                        "name": tc.name,
+                        "name": tool_name,
                         "input": tc.arguments,
                     }
                 )
@@ -186,11 +276,15 @@ class AnthropicProvider:
             return msg.content
         return content_blocks
 
-    def _convert_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _convert_tools(self, tools: list[dict[str, Any]], use_oauth: bool) -> list[dict[str, Any]]:
         """Convert OpenAI tool format to Anthropic format."""
         return [
             {
-                "name": tool["function"]["name"],
+                "name": (
+                    _to_cc_tool_name(tool["function"]["name"])
+                    if use_oauth
+                    else tool["function"]["name"]
+                ),
                 "description": tool["function"].get("description", ""),
                 "input_schema": tool["function"].get("parameters", {"type": "object"}),
             }
@@ -202,9 +296,10 @@ class AnthropicProvider:
         messages: list[Message],
         tools: list[dict[str, Any]] | None,
         options: StreamOptions | None,
+        use_oauth: bool,
     ) -> dict[str, Any]:
         """Build the API request payload."""
-        system_prompt, api_messages = self._convert_messages(messages)
+        system_prompt, api_messages = self._convert_messages(messages, use_oauth)
 
         max_tokens = options.max_tokens if options and options.max_tokens else self.max_tokens
 
@@ -215,11 +310,28 @@ class AnthropicProvider:
             "stream": True,
         }
 
-        if system_prompt:
+        if use_oauth:
+            system_blocks: list[dict[str, Any]] = [
+                {
+                    "type": "text",
+                    "text": CLAUDE_CODE_IDENTITY,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+            if system_prompt:
+                system_blocks.append(
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                )
+            payload["system"] = system_blocks
+        elif system_prompt:
             payload["system"] = system_prompt
 
         if tools:
-            payload["tools"] = self._convert_tools(tools)
+            payload["tools"] = self._convert_tools(tools, use_oauth)
 
         # Configure extended thinking if enabled
         thinking_level = None
@@ -252,7 +364,10 @@ class AnthropicProvider:
                 payload.pop("tools", None)
             elif isinstance(tc, dict) and "name" in tc:
                 # Specific tool
-                payload["tool_choice"] = {"type": "tool", "name": tc["name"]}
+                tool_name = tc["name"]
+                if use_oauth:
+                    tool_name = _to_cc_tool_name(tool_name)
+                payload["tool_choice"] = {"type": "tool", "name": tool_name}
             elif tc == "auto":
                 payload["tool_choice"] = {"type": "auto"}
 
@@ -270,7 +385,8 @@ class AnthropicProvider:
         and provides final PartialMessage via .result().
         """
         stream = AssistantMessageEventStream()
-        asyncio.create_task(self._stream_impl(messages, tools, options, stream))
+        api_key = options.api_key if options and options.api_key else self.api_key
+        asyncio.create_task(self._stream_impl(messages, tools, options, stream, api_key))
         return stream
 
     async def _stream_impl(
@@ -279,6 +395,7 @@ class AnthropicProvider:
         tools: list[dict[str, Any]] | None,
         options: StreamOptions | None,
         stream: AssistantMessageEventStream,
+        api_key: str,
     ) -> None:
         """Internal implementation of streaming with retry and cancellation."""
         output = PartialMessage()
@@ -305,7 +422,37 @@ class AnthropicProvider:
             if _check_cancelled():
                 raise asyncio.CancelledError("Request cancelled")
 
-            payload = self._build_payload(messages, tools, options)
+            resolved_key = api_key
+            use_oauth = _is_oauth_token(resolved_key) if resolved_key else False
+            if not resolved_key:
+                creds = load_oauth_credentials(self.oauth_path)
+                if creds:
+                    if _is_expired(creds.expires):
+                        try:
+                            refreshed = await refresh_anthropic_token(creds.refresh)
+                            save_oauth_credentials(refreshed, self.oauth_path)
+                            creds = refreshed
+                        except Exception:
+                            creds = None
+                    if creds:
+                        resolved_key = creds.access
+                        use_oauth = True
+
+            if not resolved_key:
+                raise AnthropicError("No Anthropic API key or OAuth credentials configured")
+            if not use_oauth and not resolved_key.startswith("sk-ant-"):
+                raise AnthropicError(
+                    "Invalid Anthropic API key (expected sk-ant-*). "
+                    "Set ANTHROPIC_API_KEY or use Anthropic OAuth."
+                )
+
+            tool_name_map = _build_cc_tool_map(tools) if use_oauth else {}
+
+            thinking_enabled = bool(
+                options and options.thinking_level and options.thinking_level != "off"
+            )
+            payload = self._build_payload(messages, tools, options, use_oauth)
+            headers = _build_headers(resolved_key, use_oauth, thinking_enabled)
 
             # Emit start event
             stream.push(StartEvent(partial=output))
@@ -314,6 +461,7 @@ class AnthropicProvider:
                 "POST",
                 "/v1/messages",
                 json=payload,
+                headers=headers,
             ) as response:
                 if response.status_code >= 400:
                     await response.aread()
@@ -376,9 +524,12 @@ class AnthropicProvider:
                             )
 
                         elif block_type == "tool_use":
+                            tool_name = block.get("name", "")
+                            if use_oauth and tool_name_map:
+                                tool_name = tool_name_map.get(tool_name.lower(), tool_name)
                             current_tool = ToolCallBlock(
                                 id=block.get("id", ""),
-                                name=block.get("name", ""),
+                                name=tool_name,
                             )
                             output.content.append(current_tool)
                             stream.push(
@@ -589,9 +740,11 @@ class AnthropicProvider:
         return supports_reasoning(self.model, provider="anthropic")
 
     async def list_models(self) -> list[str]:
-        """Return empty list - Anthropic doesn't expose model listing API."""
-        # Anthropic doesn't have a public /v1/models endpoint
-        return []
+        """Return known Anthropic models from the local registry."""
+        from agent.llm.models import MODELS
+
+        models = [model_id for model_id, info in MODELS.items() if info.provider == "anthropic"]
+        return sorted(models)
 
     async def close(self) -> None:
         """Close the HTTP client."""

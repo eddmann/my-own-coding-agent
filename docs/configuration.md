@@ -14,6 +14,12 @@ Configuration is layered and merged in this order (lowest → highest):
 - `skills_dirs`, `prompt_template_dirs`, `extensions`
 - `custom_system_prompt`, `append_system_prompt`
 
+## Authentication
+
+- Anthropic OAuth credentials are stored in `~/.agent/anthropic-oauth.json`.
+- Use CLI subcommands: `agent auth login anthropic`, `agent auth logout anthropic`, `agent auth status`.
+- OAuth credentials are only used when no Anthropic API key is configured.
+
 ## Context files
 
 `AGENTS.md` and `CLAUDE.md` are auto‑loaded from the project and its ancestors to seed the system prompt.

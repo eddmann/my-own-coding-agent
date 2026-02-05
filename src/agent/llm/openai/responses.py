@@ -232,7 +232,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                 payload["include"] = ["reasoning.encrypted_content"]
                 reasoning_enabled = True
 
-        if caps.supports_temperature and not reasoning_enabled:
+        if caps.supports_temperature and not caps.is_reasoning:
             temp = (
                 options.temperature
                 if options and options.temperature is not None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from textual.message import Message
@@ -55,10 +56,8 @@ class PromptInput(Widget, can_focus=False):
         input_widget = self.query_one("#prompt-inner", Input)
         self._suppress_history_reset = True
         input_widget.value = value
-        try:
+        with contextlib.suppress(Exception):
             input_widget.cursor_position = len(value)
-        except Exception:
-            pass
         if reset_history:
             self._history_index = None
             self._history_draft = value
@@ -147,10 +146,8 @@ class PromptInput(Widget, can_focus=False):
                 if not value.endswith(" "):
                     value += " "
                 event.input.value = value
-                try:
+                with contextlib.suppress(Exception):
                     event.input.cursor_position = len(value)
-                except Exception:
-                    pass
                 option_list.display = False
                 return
 
@@ -161,9 +158,8 @@ class PromptInput(Widget, can_focus=False):
             excluded = {"/clear", "/new", "/quit", "/help", "/context", "/model"}
             if lower.startswith("/model "):
                 excluded.add(lower.split(" ", 1)[0])
-            if lower not in excluded:
-                if not self._history or value != self._history[-1]:
-                    self._history.append(value)
+            if lower not in excluded and (not self._history or value != self._history[-1]):
+                self._history.append(value)
             self._history_index = None
             self._history_draft = ""
             self.post_message(self.Submitted(value))
@@ -231,7 +227,6 @@ class PromptInput(Widget, can_focus=False):
             event.stop()
             # Tab selects the current suggestion
             apply_suggestion(trailing_space=False)
-
 
         elif event.key == "escape":
             event.stop()

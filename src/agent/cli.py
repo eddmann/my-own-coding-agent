@@ -9,6 +9,7 @@ import typer
 from agent.core.config import Config, ThinkingLevel
 from agent.core.message import Message, ThinkingContent, ToolCall
 from agent.core.session import Session
+from agent.llm.anthropic.oauth import login_flow, logout_flow, status_flow
 
 app = typer.Typer(
     name="agent",
@@ -16,10 +17,41 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 
+auth_app = typer.Typer(help="OAuth and API key management")
+app.add_typer(auth_app, name="auth")
+
 
 def main() -> None:
     """Entry point for the CLI."""
     app()
+
+
+@auth_app.command("login")
+def auth_login(
+    provider: Annotated[str, typer.Argument(help="Provider name (anthropic)")] = "anthropic",
+) -> None:
+    """Login to an OAuth provider."""
+    if provider != "anthropic":
+        typer.echo("Only anthropic OAuth is supported right now.", err=True)
+        raise typer.Exit(1)
+    login_flow(typer.prompt, typer.echo)
+
+
+@auth_app.command("logout")
+def auth_logout(
+    provider: Annotated[str, typer.Argument(help="Provider name (anthropic)")] = "anthropic",
+) -> None:
+    """Logout from a provider."""
+    if provider != "anthropic":
+        typer.echo("Only anthropic OAuth is supported right now.", err=True)
+        raise typer.Exit(1)
+    logout_flow(typer.echo)
+
+
+@auth_app.command("status")
+def auth_status() -> None:
+    """Show stored credentials."""
+    status_flow(typer.echo)
 
 
 @app.command()

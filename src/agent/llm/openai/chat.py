@@ -68,10 +68,8 @@ class OpenAIChatProvider(OpenAIBase):
 
         payload[caps.token_param] = max_tokens
 
-        reasoning_enabled = False
         if caps.fixed_reasoning_effort:
             payload["reasoning_effort"] = caps.fixed_reasoning_effort
-            reasoning_enabled = True
         elif caps.is_reasoning and options and options.thinking_level:
             effort_map = {
                 "minimal": "low",
@@ -81,9 +79,8 @@ class OpenAIChatProvider(OpenAIBase):
             }
             if options.thinking_level in effort_map:
                 payload["reasoning_effort"] = effort_map[options.thinking_level]
-                reasoning_enabled = True
 
-        if caps.supports_temperature and not reasoning_enabled:
+        if caps.supports_temperature and not caps.is_reasoning:
             temp = (
                 options.temperature
                 if options and options.temperature is not None

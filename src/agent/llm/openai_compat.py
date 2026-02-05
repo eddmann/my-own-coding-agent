@@ -126,9 +126,14 @@ class OpenAICompatibleProvider:
     model: str
     temperature: float = 0.7
     max_tokens: int = 4096
+    http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
     _encoder: tiktoken.Encoding | None = field(default=None, repr=False)
     _compat: CompatSettings | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.http_client is not None:
+            self._client = self.http_client
 
     @property
     def client(self) -> httpx.AsyncClient:

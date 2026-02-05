@@ -292,13 +292,56 @@ class Config:
 
     def get_provider_config(self) -> ProviderConfig:
         """Get the configuration for the current provider."""
+
+        def _env_provider_key(provider: str) -> str | None:
+            mapping = {
+                "openai": "OPENAI_API_KEY",
+                "anthropic": "ANTHROPIC_API_KEY",
+                "openrouter": "OPENROUTER_API_KEY",
+                "groq": "GROQ_API_KEY",
+            }
+            env_var = mapping.get(provider)
+            if env_var:
+                return os.environ.get(env_var)
+            return None
+
+        def _is_anthropic_key(value: str | None) -> bool:
+            return value is not None and value.startswith("sk-ant-")
+
+        def _resolve_api_key(default: str | None, provider: str) -> str | None:
+            # Provider-specific environment variable first
+            env_key = _env_provider_key(provider)
+            if env_key:
+                return env_key
+
+            agent_key = os.environ.get("AGENT_API_KEY")
+
+            if provider == "anthropic":
+                if _is_anthropic_key(agent_key):
+                    return agent_key
+                if _is_anthropic_key(default):
+                    return default
+                return None
+
+            if provider == "openai":
+                if agent_key and not _is_anthropic_key(agent_key):
+                    return agent_key
+                if default and not _is_anthropic_key(default):
+                    return default
+                return None
+
+            # Fallback for other providers
+            if agent_key:
+                return agent_key
+            return default
+
         if self.provider in self.providers:
             prov = self.providers[self.provider]
             # Override with top-level settings if specified
             return ProviderConfig(
                 base_url=self.base_url or prov.base_url,
                 model=self.model or prov.model,
-                api_key=self.api_key or prov.api_key,
+                api_key=_resolve_api_key(self.api_key or prov.api_key, self.provider),
             )
 
         # Default provider configs
@@ -336,12 +379,12 @@ class Config:
             return ProviderConfig(
                 base_url=self.base_url or config.base_url,
                 model=self.model,
-                api_key=self.api_key or config.api_key,
+                api_key=_resolve_api_key(self.api_key or config.api_key, self.provider),
             )
 
         # Fallback to using top-level settings directly
         return ProviderConfig(
             base_url=self.base_url or "https://api.openai.com",
             model=self.model,
-            api_key=self.api_key,
+            api_key=_resolve_api_key(self.api_key, self.provider),
         )

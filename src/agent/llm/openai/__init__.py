@@ -31,10 +31,15 @@ class OpenAIProvider:
     model: str = "gpt-4o"
     temperature: float = 0.7
     max_tokens: int = 4096
+    http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     _chat: OpenAIChatProvider | None = field(default=None, repr=False)
     _responses: OpenAIResponsesProvider | None = field(default=None, repr=False)
     _shared_encoder: tiktoken.Encoding | None = field(default=None, repr=False)
     _shared_client: httpx.AsyncClient | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.http_client is not None:
+            self._shared_client = self.http_client
 
     def _sync_provider(self, provider: OpenAIChatProvider | OpenAIResponsesProvider) -> None:
         provider.api_key = self.api_key

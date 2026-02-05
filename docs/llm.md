@@ -9,10 +9,11 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
 
 ## Built‑in providers
 
-- **OpenAI** (`src/agent/llm/openai.py`)
+- **OpenAI** (`src/agent/llm/openai/`)
   - Uses the native OpenAI API with reasoning‑effort support
-- **Anthropic** (`src/agent/llm/anthropic.py`)
+- **Anthropic** (`src/agent/llm/anthropic/`)
   - Uses Claude’s Messages API with extended thinking signatures
+  - Claude Code emulation when using Anthropic OAuth tokens (`sk-ant-oat...`)
 - **OpenAI‑compatible** (`src/agent/llm/openai_compat.py`)
   - Works with Ollama, OpenRouter, Groq, LM Studio, etc.
 

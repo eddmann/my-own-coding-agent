@@ -46,6 +46,22 @@ class PromptInput(Widget, can_focus=False):
         self._skill_loader = skill_loader
         self._template_loader = template_loader
         self._extension_commands = extension_commands or []
+        self._history: list[str] = []
+        self._history_index: int | None = None
+        self._history_draft = ""
+        self._suppress_history_reset = False
+
+    def _set_input_value(self, value: str, *, reset_history: bool) -> None:
+        input_widget = self.query_one("#prompt-inner", Input)
+        self._suppress_history_reset = True
+        input_widget.value = value
+        try:
+            input_widget.cursor_position = len(value)
+        except Exception:
+            pass
+        if reset_history:
+            self._history_index = None
+            self._history_draft = value
 
     def _get_slash_commands(self) -> list[str]:
         """Build list of slash commands (templates, built-ins, extensions)."""
@@ -86,6 +102,12 @@ class PromptInput(Widget, can_focus=False):
         """Show/hide suggestions based on input."""
         option_list = self.query_one("#suggestions", OptionList)
         value = event.value
+        if self._suppress_history_reset:
+            self._suppress_history_reset = False
+        else:
+            if self._history_index is not None:
+                self._history_index = None
+            self._history_draft = value
 
         if value.startswith("/"):
             # Filter commands matching input
@@ -121,20 +143,71 @@ class PromptInput(Widget, can_focus=False):
             # Select highlighted option
             option = option_list.get_option_at_index(option_list.highlighted)
             if option:
-                event.input.value = str(option.prompt)
+                value = str(option.prompt)
+                if not value.endswith(" "):
+                    value += " "
+                event.input.value = value
+                try:
+                    event.input.cursor_position = len(value)
+                except Exception:
+                    pass
                 option_list.display = False
                 return
 
         # Submit the input
         value = event.value.strip()
         if value:
+            lower = value.lower()
+            excluded = {"/clear", "/new", "/quit", "/help", "/context", "/model"}
+            if lower.startswith("/model "):
+                excluded.add(lower.split(" ", 1)[0])
+            if lower not in excluded:
+                if not self._history or value != self._history[-1]:
+                    self._history.append(value)
+            self._history_index = None
+            self._history_draft = ""
             self.post_message(self.Submitted(value))
 
     def on_key(self, event: Key) -> None:
         """Handle arrow keys for suggestion navigation."""
         option_list = self.query_one("#suggestions", OptionList)
 
+        def apply_suggestion(trailing_space: bool) -> None:
+            if option_list.highlighted is None:
+                return
+            option = option_list.get_option_at_index(option_list.highlighted)
+            if not option:
+                return
+            value = str(option.prompt)
+            if trailing_space and not value.endswith(" "):
+                value += " "
+            self._set_input_value(value, reset_history=True)
+            option_list.display = False
+
         if not option_list.display:
+            if event.key in {"up", "down"}:
+                if not self._history:
+                    return
+                event.stop()
+                input_widget = self.query_one("#prompt-inner", Input)
+                if event.key == "up":
+                    if self._history_index is None:
+                        self._history_draft = input_widget.value
+                        self._history_index = len(self._history) - 1
+                    elif self._history_index > 0:
+                        self._history_index -= 1
+                    value = self._history[self._history_index]
+                    self._set_input_value(value, reset_history=False)
+                else:
+                    if self._history_index is None:
+                        return
+                    if self._history_index < len(self._history) - 1:
+                        self._history_index += 1
+                        value = self._history[self._history_index]
+                        self._set_input_value(value, reset_history=False)
+                    else:
+                        self._history_index = None
+                        self._set_input_value(self._history_draft, reset_history=False)
             return
 
         if event.key == "up":
@@ -157,12 +230,8 @@ class PromptInput(Widget, can_focus=False):
         elif event.key == "tab":
             event.stop()
             # Tab selects the current suggestion
-            if option_list.highlighted is not None:
-                option = option_list.get_option_at_index(option_list.highlighted)
-                if option:
-                    input_widget = self.query_one("#prompt-inner", Input)
-                    input_widget.value = str(option.prompt)
-                    option_list.display = False
+            apply_suggestion(trailing_space=False)
+
 
         elif event.key == "escape":
             event.stop()
@@ -171,10 +240,9 @@ class PromptInput(Widget, can_focus=False):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle mouse click on suggestion."""
         event.stop()
-        input_widget = self.query_one("#prompt-inner", Input)
-        input_widget.value = str(event.option.prompt)
+        self._set_input_value(str(event.option.prompt), reset_history=True)
         self.query_one("#suggestions", OptionList).display = False
-        input_widget.focus()
+        self.query_one("#prompt-inner", Input).focus()
 
     def focus(self, scroll_visible: bool = True) -> PromptInput:
         """Focus the inner input."""

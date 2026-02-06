@@ -7,8 +7,8 @@ from typing import Annotated
 import typer
 
 from agent.core.config import Config, ThinkingLevel
-from agent.core.message import Message, ThinkingContent, ToolCall
-from agent.core.session import Session
+from agent.core.message import Message, Role, ThinkingContent, ToolCall
+from agent.core.session import MessageEntry, Session, SessionStateEntry
 from agent.llm.anthropic.oauth import login_flow, logout_flow, status_flow
 
 app = typer.Typer(
@@ -149,6 +149,62 @@ def run(
         run_tui(config, loaded_session)
 
 
+def _resolve_message_id(session: Session, spec: str) -> str | None:
+    """Resolve a message id from a spec (id, prefix, index, last)."""
+    messages = session.messages
+    if not messages:
+        return None
+    spec = spec.strip()
+    if not spec or spec.lower() in {"last", "latest"}:
+        return messages[-1].id
+    if spec.lower() in {"assistant", "last-assistant"}:
+        for msg in reversed(messages):
+            if msg.role == Role.ASSISTANT:
+                return msg.id
+        return messages[-1].id
+    if spec.isdigit():
+        idx = int(spec)
+        if 0 <= idx < len(messages):
+            return messages[idx].id
+    for msg in messages:
+        if msg.id == spec:
+            return msg.id
+    matches = [msg for msg in messages if msg.id.startswith(spec)]
+    if len(matches) == 1:
+        return matches[0].id
+    return None
+
+
+def _resolve_entry_id(session: Session, spec: str) -> str | None:
+    """Resolve an entry id across all message entries in a session."""
+    entries = list(session.entries)
+    if not entries:
+        return None
+    spec = spec.strip()
+    if not spec or spec.lower() in {"last", "latest"}:
+        non_state_entries = [e for e in entries if not isinstance(e, SessionStateEntry)]
+        if non_state_entries:
+            return non_state_entries[-1].id
+        return entries[-1].id
+    if spec.lower() in {"assistant", "last-assistant"}:
+        for entry in reversed(entries):
+            if isinstance(entry, MessageEntry) and entry.message.role == Role.ASSISTANT:
+                return entry.id
+        return entries[-1].id
+    for entry in entries:
+        if entry.id == spec:
+            return entry.id
+    matches = [e for e in entries if e.id.startswith(spec)]
+    if len(matches) == 1:
+        return matches[0].id
+    if spec.isdigit():
+        msg_entries = [e for e in entries if isinstance(e, MessageEntry)]
+        idx = int(spec)
+        if 0 <= idx < len(msg_entries):
+            return msg_entries[idx].id
+    return None
+
+
 def run_tui(config: Config, session: Session | None) -> None:
     """Run the interactive TUI."""
     from agent.tui.app import AgentApp
@@ -202,6 +258,92 @@ async def run_headless(config: Config, prompt: str, session: Session | None) -> 
         print(f"\n[Error: {type(e).__name__}: {e}]", flush=True)
     finally:
         await agent.close()
+
+
+@app.command()
+def fork(
+    session: Annotated[
+        Path | None, typer.Option("-s", "--session", help="Session file to fork")
+    ] = None,
+    from_message: Annotated[
+        str,
+        typer.Option(
+            "--from",
+            help="Message id, id prefix, index, or 'last'/'assistant'",
+        ),
+    ] = "last",
+) -> None:
+    """Fork a session from a message and start the TUI."""
+    config = Config.load()
+
+    source_session: Session | None = None
+    if session:
+        if session.exists():
+            source_session = Session.load(session)
+            typer.echo(f"Loaded session: {session}")
+        else:
+            typer.echo(f"Session file not found: {session}", err=True)
+            raise typer.Exit(1)
+    else:
+        source_session = Session.get_latest(config.session_dir)
+        if not source_session:
+            typer.echo("No previous session found", err=True)
+            raise typer.Exit(1)
+
+    message_id = _resolve_message_id(source_session, from_message)
+    if not message_id:
+        typer.echo(f"Could not resolve message: {from_message}", err=True)
+        raise typer.Exit(1)
+
+    new_session = source_session.fork(message_id, config.session_dir)
+    typer.echo(f"Forked session: {new_session.path} (parent: {source_session.metadata.id})")
+
+    run_tui(config, new_session)
+
+
+@app.command()
+def tree(
+    session: Annotated[
+        Path | None, typer.Option("-s", "--session", help="Session file to open")
+    ] = None,
+    to: Annotated[
+        str,
+        typer.Option(
+            "--to",
+            help="Message id, id prefix, index, or 'last'/'assistant'",
+        ),
+    ] = "last",
+) -> None:
+    """Move the session leaf to an entry and start the TUI."""
+    config = Config.load()
+
+    target_session: Session | None = None
+    if session:
+        if session.exists():
+            target_session = Session.load(session)
+            typer.echo(f"Loaded session: {session}")
+        else:
+            typer.echo(f"Session file not found: {session}", err=True)
+            raise typer.Exit(1)
+    else:
+        target_session = Session.get_latest(config.session_dir)
+        if not target_session:
+            typer.echo("No previous session found", err=True)
+            raise typer.Exit(1)
+
+    message_id = _resolve_entry_id(target_session, to)
+    if not message_id:
+        typer.echo(f"Could not resolve message: {to}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        target_session.set_leaf(message_id)
+    except Exception as exc:
+        typer.echo(f"Failed to set leaf: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Set session leaf: {message_id}")
+
+    run_tui(config, target_session)
 
 
 @app.command()

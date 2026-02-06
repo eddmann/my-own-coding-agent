@@ -13,14 +13,20 @@ if TYPE_CHECKING:
 
 from agent.core.message import Message, Role
 
+SESSION_VERSION = 1
+
 
 class SessionMetadata(BaseModel):
     """Session header metadata."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["session"] = "session"
+    version: int = SESSION_VERSION
     id: str
-    created_at: datetime
+    created_at: datetime = Field(alias="timestamp")
     cwd: str
-    parent_session_id: str | None = None
+    parent_session_id: str | None = Field(default=None, alias="parentSession")
     provider: str | None = None
     model: str | None = None
 
@@ -51,7 +57,24 @@ class ModelChangeEntry(SessionEntryBase):
     model_id: str = Field(alias="modelId")
 
 
-SessionEntry = MessageEntry | ModelChangeEntry
+class CompactionEntry(SessionEntryBase):
+    """Session entry recording a compaction event."""
+
+    type: Literal["compaction"] = "compaction"
+    summary: str
+    first_kept_entry_id: str | None = Field(default=None, alias="firstKeptEntryId")
+    tokens_before: int | None = Field(default=None, alias="tokensBefore")
+    tokens_after: int | None = Field(default=None, alias="tokensAfter")
+
+
+class SessionStateEntry(SessionEntryBase):
+    """Session entry recording the active leaf."""
+
+    type: Literal["session_state"] = "session_state"
+    leaf_id: str | None = Field(default=None, alias="leafId")
+
+
+SessionEntry = MessageEntry | ModelChangeEntry | CompactionEntry | SessionStateEntry
 
 
 class SessionContext(BaseModel):
@@ -64,7 +87,7 @@ class SessionContext(BaseModel):
 class Session:
     """Manages conversation history with JSONL persistence."""
 
-    __slots__ = ("path", "metadata", "messages", "entries", "_leaf_id")
+    __slots__ = ("path", "metadata", "messages", "entries", "_leaf_id", "_entries_by_id")
 
     def __init__(self, path: Path, metadata: SessionMetadata) -> None:
         self.path = path
@@ -72,6 +95,7 @@ class Session:
         self.messages: list[Message] = []
         self.entries: list[SessionEntry] = []
         self._leaf_id: str | None = None
+        self._entries_by_id: dict[str, SessionEntry] = {}
 
     @classmethod
     def new(cls, session_dir: Path, provider: str | None = None, model: str | None = None) -> Self:
@@ -83,7 +107,7 @@ class Session:
 
         metadata = SessionMetadata(
             id=session_id,
-            created_at=datetime.now(UTC),
+            timestamp=datetime.now(UTC),
             cwd=str(Path.cwd()),
             provider=provider,
             model=model,
@@ -107,10 +131,19 @@ class Session:
                     entry = cls._parse_entry(line)
                     if entry is None:
                         continue
-                    session.entries.append(entry)
-                    session._leaf_id = entry.id
-                    if isinstance(entry, MessageEntry):
-                        session.messages.append(entry.message)
+                    session._add_entry(entry)
+                    if isinstance(entry, SessionStateEntry):
+                        if entry.leaf_id:
+                            session._leaf_id = entry.leaf_id
+                    else:
+                        session._leaf_id = entry.id
+            if session._leaf_id and session._leaf_id not in session._entries_by_id:
+                fallback = next(
+                    (e for e in reversed(session.entries) if not isinstance(e, SessionStateEntry)),
+                    None,
+                )
+                session._leaf_id = fallback.id if fallback else None
+            session._rebuild_messages()
         return session
 
     @classmethod
@@ -146,37 +179,21 @@ class Session:
         new_session = type(self).new(session_dir)
         new_session.metadata = SessionMetadata(
             id=new_session.metadata.id,
-            created_at=new_session.metadata.created_at,
+            timestamp=new_session.metadata.created_at,
             cwd=new_session.metadata.cwd,
-            parent_session_id=self.metadata.id,
+            parentSession=self.metadata.id,
         )
         # Rewrite header with parent info
         new_session._write_header()
 
+        prev_id: str | None = None
         for msg in self.messages[: idx + 1]:
-            new_msg = msg.model_copy(update={"parent_id": msg.id, "id": uuid4().hex[:12]})
+            new_id = uuid4().hex[:12]
+            new_msg = msg.model_copy(update={"id": new_id, "parent_id": prev_id})
             new_session.append(new_msg)
+            prev_id = new_id
 
         return new_session
-
-    def replace_messages(self, messages: list[Message]) -> None:
-        """Replace all messages (used for compaction). Rewrites the file."""
-        current_model = self.get_model_selection()
-        self.messages = []
-        self.entries = []
-        self._leaf_id = None
-
-        # Rebuild entries (preserve current model selection if available)
-        if current_model and current_model[0] and current_model[1]:
-            self._append_model_change_entry(
-                provider=current_model[0],
-                model=current_model[1],
-                persist=False,
-            )
-        for msg in messages:
-            self._append_message_entry(msg, persist=False)
-
-        self._rewrite_file()
 
     def update_model_metadata(self, provider: str | None, model: str | None) -> None:
         """Update session metadata for provider/model and rewrite header."""
@@ -187,12 +204,38 @@ class Session:
         """Record a model change as a session entry."""
         self._append_model_change_entry(provider=provider, model=model, persist=True)
 
+    def append_compaction(
+        self,
+        summary: str,
+        first_kept_entry_id: str | None,
+        tokens_before: int | None = None,
+        tokens_after: int | None = None,
+    ) -> None:
+        """Record a compaction event and rebuild in-memory messages."""
+        entry = self._append_compaction_entry(
+            summary=summary,
+            first_kept_entry_id=first_kept_entry_id,
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            persist=True,
+        )
+        self._leaf_id = entry.id
+        self._rebuild_messages()
+
+    def set_leaf(self, leaf_id: str) -> None:
+        """Set the active leaf (appends a session_state entry)."""
+        if leaf_id not in self._entries_by_id:
+            raise ValueError(f"Unknown leaf id: {leaf_id}")
+        self._append_session_state_entry(leaf_id, persist=True)
+        self._leaf_id = leaf_id
+        self._rebuild_messages()
+
     def get_model_selection(self) -> tuple[str | None, str | None] | None:
         """Get the latest (provider, model) from session entries/messages."""
         provider = self.metadata.provider
         model = self.metadata.model
 
-        for entry in self.entries:
+        for entry in self._branch_entries(self._leaf_id):
             if isinstance(entry, ModelChangeEntry):
                 provider = entry.provider
                 model = entry.model_id
@@ -210,7 +253,7 @@ class Session:
         """Write session metadata header."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "w") as f:
-            f.write(self.metadata.model_dump_json() + "\n")
+            f.write(self.metadata.model_dump_json(by_alias=True, exclude_none=True) + "\n")
 
     def _rewrite_file(self) -> None:
         """Rewrite header + all entries."""
@@ -221,7 +264,7 @@ class Session:
 
     @classmethod
     def _parse_entry(cls, line: str) -> SessionEntry | None:
-        """Parse a JSONL entry, supporting legacy message-only lines."""
+        """Parse a JSONL entry."""
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
@@ -243,16 +286,13 @@ class Session:
                 return entry
             if entry_type == "model_change":
                 return ModelChangeEntry.model_validate(data)
+            if entry_type == "compaction":
+                return CompactionEntry.model_validate(data)
+            if entry_type == "session_state":
+                return SessionStateEntry.model_validate(data)
             return None
 
-        # Legacy line: plain Message JSON
-        message = Message.model_validate(data)
-        return MessageEntry(
-            id=message.id,
-            parentId=message.parent_id,
-            timestamp=message.timestamp,
-            message=message,
-        )
+        return None
 
     @staticmethod
     def _serialize_entry(entry: SessionEntry) -> str:
@@ -269,7 +309,7 @@ class Session:
             timestamp=message.timestamp,
             message=message,
         )
-        self.entries.append(entry)
+        self._add_entry(entry)
         self.messages.append(entry.message)
         self._leaf_id = entry.id
         if persist:
@@ -288,8 +328,50 @@ class Session:
             provider=provider,
             modelId=model,
         )
-        self.entries.append(entry)
+        self._add_entry(entry)
         self._leaf_id = entry.id
+        if persist:
+            with open(self.path, "a") as f:
+                f.write(self._serialize_entry(entry) + "\n")
+        return entry
+
+    def _append_compaction_entry(
+        self,
+        summary: str,
+        first_kept_entry_id: str | None,
+        tokens_before: int | None = None,
+        tokens_after: int | None = None,
+        persist: bool = True,
+    ) -> CompactionEntry:
+        """Append a compaction entry (optionally persist)."""
+        entry = CompactionEntry(
+            id=uuid4().hex[:12],
+            parentId=self._leaf_id,
+            timestamp=datetime.now(UTC),
+            summary=summary,
+            firstKeptEntryId=first_kept_entry_id,
+            tokensBefore=tokens_before,
+            tokensAfter=tokens_after,
+        )
+        self._add_entry(entry)
+        if persist:
+            with open(self.path, "a") as f:
+                f.write(self._serialize_entry(entry) + "\n")
+        return entry
+
+    def _append_session_state_entry(
+        self,
+        leaf_id: str | None,
+        persist: bool = True,
+    ) -> SessionStateEntry:
+        """Append a session state entry (optionally persist)."""
+        entry = SessionStateEntry(
+            id=uuid4().hex[:12],
+            parentId=self._leaf_id,
+            timestamp=datetime.now(UTC),
+            leafId=leaf_id,
+        )
+        self._add_entry(entry)
         if persist:
             with open(self.path, "a") as f:
                 f.write(self._serialize_entry(entry) + "\n")
@@ -300,3 +382,89 @@ class Session:
 
     def __iter__(self) -> Iterator[Message]:
         return iter(self.messages)
+
+    @property
+    def leaf_id(self) -> str | None:
+        """Get the current leaf entry id."""
+        return self._leaf_id
+
+    def _add_entry(self, entry: SessionEntry) -> None:
+        self.entries.append(entry)
+        self._entries_by_id[entry.id] = entry
+
+    def _branch_entries(self, leaf_id: str | None) -> list[SessionEntry]:
+        if not leaf_id:
+            return []
+        branch: list[SessionEntry] = []
+        current: str | None = leaf_id
+        seen: set[str] = set()
+        while current:
+            if current in seen:
+                break
+            seen.add(current)
+            entry = self._entries_by_id.get(current)
+            if not entry:
+                break
+            branch.append(entry)
+            current = entry.parent_id
+        branch.reverse()
+        return branch
+
+    def _rebuild_messages(self) -> None:
+        branch_entries = self._branch_entries(self._leaf_id)
+        message_entries = [e for e in branch_entries if isinstance(e, MessageEntry)]
+        compactions = [e for e in branch_entries if isinstance(e, CompactionEntry)]
+
+        if not compactions:
+            self.messages = [e.message for e in message_entries]
+            return
+
+        compaction = compactions[-1]
+
+        messages: list[Message] = []
+        seen_ids: set[str] = set()
+
+        # Always include system messages from the active branch
+        for msg_entry in message_entries:
+            msg = msg_entry.message
+            if msg.role == Role.SYSTEM and msg.id not in seen_ids:
+                messages.append(msg)
+                seen_ids.add(msg.id)
+
+        summary_text = compaction.summary.strip()
+        if summary_text:
+            summary_msg = Message(
+                role=Role.SYSTEM,
+                content=f"[Previous conversation summary]\n{summary_text}",
+            )
+            messages.append(summary_msg)
+
+        start_index: int | None = None
+        if compaction.first_kept_entry_id:
+            for idx, msg_entry in enumerate(message_entries):
+                if msg_entry.message.id == compaction.first_kept_entry_id:
+                    start_index = idx
+                    break
+
+        if start_index is None:
+            after_compaction = False
+            for branch_entry in branch_entries:
+                if branch_entry is compaction:
+                    after_compaction = True
+                    continue
+                if after_compaction and isinstance(branch_entry, MessageEntry):
+                    msg = branch_entry.message
+                    if msg.role != Role.SYSTEM and msg.id not in seen_ids:
+                        messages.append(msg)
+                        seen_ids.add(msg.id)
+            self.messages = messages
+            return
+
+        for msg_entry in message_entries[start_index:]:
+            msg = msg_entry.message
+            if msg.role == Role.SYSTEM or msg.id in seen_ids:
+                continue
+            messages.append(msg)
+            seen_ids.add(msg.id)
+
+        self.messages = messages

@@ -98,23 +98,54 @@ class TestSession:
         assert forked.messages[0].content == "First"
         assert forked.messages[1].content == "Second"
 
-    def test_replace_messages(self, temp_dir: Path):
-        """Test replacing all messages (for compaction)."""
+        reloaded = Session.load(forked.path)
+        assert len(reloaded.messages) == 2
+        assert reloaded.messages[0].parent_id is None
+        assert reloaded.messages[1].parent_id == reloaded.messages[0].id
+
+    def test_set_leaf_moves_active_branch(self, temp_dir: Path):
+        """Set leaf moves the active branch to the selected message."""
         session = Session.new(temp_dir)
-        session.append(Message.user("Old 1"))
-        session.append(Message.assistant("Old 2"))
+        first = Message.user("First")
+        second = Message.assistant("Second")
+        third = Message.user("Third")
+        session.append(first)
+        session.append(second)
+        session.append(third)
 
-        new_messages = [
-            Message.system("Summary"),
-            Message.user("Recent"),
-        ]
-        session.replace_messages(new_messages)
+        session.set_leaf(second.id)
 
-        # Reload to verify persistence
+        assert [m.content for m in session.messages] == ["First", "Second"]
+
         loaded = Session.load(session.path)
-        assert len(loaded.messages) == 2
-        assert loaded.messages[0].content == "Summary"
-        assert loaded.messages[1].content == "Recent"
+
+        assert loaded.leaf_id == second.id
+        assert [m.content for m in loaded.messages] == ["First", "Second"]
+
+    def test_compaction_summary_rebuilds_context_from_first_kept(self, temp_dir: Path):
+        """Compaction summary keeps messages from firstKeptEntryId onward."""
+        session = Session.new(temp_dir)
+        msg1 = Message.user("Old 1")
+        msg2 = Message.assistant("Old 2")
+        msg3 = Message.user("Recent 1")
+        msg4 = Message.assistant("Recent 2")
+        session.append(msg1)
+        session.append(msg2)
+        session.append(msg3)
+        session.append(msg4)
+
+        summary = "## Summary\n- condensed"
+        TOKENS_BEFORE = 100
+
+        session.append_compaction(summary, first_kept_entry_id=msg3.id, tokens_before=TOKENS_BEFORE)
+
+        assert "Previous conversation summary" in session.messages[0].content
+        assert [m.content for m in session.messages[1:]] == ["Recent 1", "Recent 2"]
+
+        loaded = Session.load(session.path)
+
+        assert "Previous conversation summary" in loaded.messages[0].content
+        assert [m.content for m in loaded.messages[1:]] == ["Recent 1", "Recent 2"]
 
 
 class TestSessionMetadata:

@@ -11,6 +11,9 @@ from tests.fakes import FakeLLMProvider, make_error_events, make_text_events
 
 @pytest.mark.asyncio
 async def test_compaction_uses_structured_summary_and_redacts_prompt_input(temp_dir):
+    MAX_TOKENS = 4096
+    KEEP_RECENT = 2
+
     fake = FakeLLMProvider(
         [
             make_text_events(
@@ -21,7 +24,7 @@ async def test_compaction_uses_structured_summary_and_redacts_prompt_input(temp_
             )
         ]
     )
-    manager = ContextManager(fake, max_tokens=4096, keep_recent=2)
+    manager = ContextManager(fake, max_tokens=MAX_TOKENS, keep_recent=KEEP_RECENT)
 
     secret = "sk-1234567890secret"
     key_secret = "api_key: abc123"
@@ -34,13 +37,10 @@ async def test_compaction_uses_structured_summary_and_redacts_prompt_input(temp_
         Message.assistant("ok"),
     ]
 
-    compacted = await manager.compact(messages)
+    compaction = await manager.compact(messages)
 
-    summary_messages = [
-        m for m in compacted if m.role.value == "system" and "Previous conversation" in m.content
-    ]
-    assert summary_messages
-    assert "## Summary" in summary_messages[0].content
+    assert "## Summary" in compaction.summary
+    assert compaction.first_kept_id == messages[-2].id
 
     prompt_sent = fake.stream_calls[0]["messages"][0].content
     assert secret not in prompt_sent
@@ -50,8 +50,11 @@ async def test_compaction_uses_structured_summary_and_redacts_prompt_input(temp_
 
 @pytest.mark.asyncio
 async def test_compaction_fallback_extracts_files_and_redacts(temp_dir):
+    MAX_TOKENS = 4096
+    KEEP_RECENT = 2
+
     fake = FakeLLMProvider([make_error_events("failure")])
-    manager = ContextManager(fake, max_tokens=4096, keep_recent=2)
+    manager = ContextManager(fake, max_tokens=MAX_TOKENS, keep_recent=KEEP_RECENT)
 
     tool_calls = [ToolCall(id="1", name="read", arguments={"path": "/tmp/sk-abcdef123456.txt"})]
     messages = [
@@ -63,13 +66,9 @@ async def test_compaction_fallback_extracts_files_and_redacts(temp_dir):
         Message.assistant("done"),
     ]
 
-    compacted = await manager.compact(messages)
+    compaction = await manager.compact(messages)
 
-    summary_messages = [
-        m for m in compacted if m.role.value == "system" and "Previous conversation" in m.content
-    ]
-    assert summary_messages
-    content = summary_messages[0].content
+    content = compaction.summary
     assert "## Files Read" in content
     assert "sk-" not in content
     assert "hunter2" not in content

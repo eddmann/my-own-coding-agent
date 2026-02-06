@@ -13,6 +13,10 @@ The interactive terminal UI is built with Textual (`src/agent/tui/*`).
 
 - `/clear` — clear chat
 - `/new` — new session
+- `/load` — load a session
+- `/resume` — pick a session to resume
+- `/fork` — fork from a message
+- `/tree` — move session leaf (tree view; linear list when no branches)
 - `/context` — show context files
 - `/model` — change model
 - `/help` — quick help

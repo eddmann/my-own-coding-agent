@@ -225,6 +225,14 @@ class Agent:
         self._total_tokens = 0
         self._init_system_prompt()
 
+    def load_session(self, session: Session) -> None:
+        """Switch to an existing session and restore model selection."""
+        self.session = session
+        self._restore_model_from_session()
+        if not self.session.messages:
+            self._init_system_prompt()
+        self._total_tokens = self.context.current_tokens(self.session.messages)
+
     def set_model(self, model: str, source: str = "set") -> None:
         """Switch to a new model and persist selection."""
         if not model or model == self.provider.model:
@@ -413,8 +421,12 @@ class Agent:
         # Check compaction
         if self.context.needs_compaction(self.session.messages):
             original_tokens = self.context.current_tokens(self.session.messages)
-            compacted = await self.context.compact(self.session.messages)
-            self.session.replace_messages(compacted)
+            compaction = await self.context.compact(self.session.messages)
+            self.session.append_compaction(
+                compaction.summary,
+                compaction.first_kept_id,
+                tokens_before=original_tokens,
+            )
             compacted_tokens = self.context.current_tokens(self.session.messages)
             await self._emit(
                 ContextCompactionEvent(
@@ -745,8 +757,13 @@ class Agent:
 
     async def compact(self) -> None:
         """Manually trigger context compaction."""
-        compacted = await self.context.compact(self.session.messages)
-        self.session.replace_messages(compacted)
+        original_tokens = self.context.current_tokens(self.session.messages)
+        compaction = await self.context.compact(self.session.messages)
+        self.session.append_compaction(
+            compaction.summary,
+            compaction.first_kept_id,
+            tokens_before=original_tokens,
+        )
         self._total_tokens = self.context.current_tokens(self.session.messages)
 
     async def close(self) -> None:

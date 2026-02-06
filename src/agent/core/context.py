@@ -12,6 +12,12 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
+class CompactionResult:
+    summary: str
+    first_kept_id: str | None
+
+
+@dataclass(slots=True)
 class ContextManager:
     """Manages context window and compaction."""
 
@@ -26,26 +32,29 @@ class ContextManager:
 
     def needs_compaction(self, messages: list[Message]) -> bool:
         """Check if compaction is needed."""
+        if len(messages) <= self.keep_recent + 1:
+            return False
         available = self.max_tokens - self.reserve_tokens
         return self.current_tokens(messages) > available * 0.8
 
-    async def compact(self, messages: list[Message]) -> list[Message]:
+    async def compact(self, messages: list[Message]) -> CompactionResult:
         """Summarize older messages, keep recent ones.
 
         Strategy:
         1. Always keep system messages
         2. Always keep the most recent messages
         3. Summarize the middle section
+        Returns a CompactionResult with the summary and first kept message id.
         """
         if len(messages) <= self.keep_recent + 1:
-            return messages  # Nothing to compact
+            return CompactionResult(summary="", first_kept_id=None)
 
         # Separate system messages from conversation
-        system_msgs = [m for m in messages if m.role == Role.SYSTEM]
         other_msgs = [m for m in messages if m.role != Role.SYSTEM]
 
         if len(other_msgs) <= self.keep_recent:
-            return messages  # Not enough to compact
+            first_kept_id = other_msgs[0].id if other_msgs else None
+            return CompactionResult(summary="", first_kept_id=first_kept_id)
 
         # Split into old and recent
         old_msgs = other_msgs[: -self.keep_recent]
@@ -54,12 +63,8 @@ class ContextManager:
         # Generate summary of old messages
         summary = await self._generate_summary(old_msgs)
 
-        summary_msg = Message(
-            role=Role.SYSTEM,
-            content=f"[Previous conversation summary]\n{summary}",
-        )
-
-        return [*system_msgs, summary_msg, *recent_msgs]
+        first_kept_id = recent_msgs[0].id if recent_msgs else None
+        return CompactionResult(summary=summary, first_kept_id=first_kept_id)
 
     async def _generate_summary(self, messages: list[Message]) -> str:
         """Generate a summary of messages using the LLM."""

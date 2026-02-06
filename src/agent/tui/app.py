@@ -1,6 +1,7 @@
 """Main Textual TUI application."""
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual import on
@@ -13,19 +14,19 @@ from textual.widgets import Static
 
 from agent.core.agent import Agent
 from agent.core.config import Config, ThinkingLevel
-from agent.core.message import Message, ThinkingContent, ToolCall, ToolCallStart, ToolResult
+from agent.core.message import Message, Role, ThinkingContent, ToolCall, ToolCallStart, ToolResult
+from agent.core.session import MessageEntry, Session
 from agent.prompts.loader import PromptTemplateLoader
 from agent.skills.loader import SkillLoader
 from agent.tui.chat import ChatView, MessageWidget, ThinkingWidget
 from agent.tui.context_modal import ContextModal
 from agent.tui.input import PromptInput
 from agent.tui.model_modal import ModelModal
+from agent.tui.session_modal import SessionForkModal, SessionLoadModal, SessionTreeModal
 from agent.tui.status import StatusBar
 
 if TYPE_CHECKING:
     from textual.timer import Timer
-
-    from agent.core.session import Session
 
 # Startup banner
 BANNER = """
@@ -106,6 +107,144 @@ class AgentApp(App[None]):
         chat = self.query_one("#chat-view", ChatView)
         chat.advance_waiting()
 
+    def _render_banner(self, chat: ChatView) -> None:
+        """Render the startup banner in chat."""
+        chat.mount(
+            Static(
+                f"{BANNER}\n\nmy-own-coding-agent | {self.config.model}", classes="message-system"
+            )
+        )
+
+    def _render_session_messages(self, chat: ChatView, session: Session) -> None:
+        """Render existing session messages into the chat view."""
+        for msg in session.messages:
+            if msg.role.value == "system":
+                continue
+            if msg.role.value == "user":
+                chat.add_user_message(msg.content)
+                continue
+            if msg.role.value == "assistant":
+                if msg.thinking and msg.thinking.text:
+                    thinking = ThinkingWidget()
+                    chat.mount(thinking)
+                    thinking.append_text(msg.thinking.text)
+                chat.mount(MessageWidget("assistant", msg.content))
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        chat.complete_tool_call(tc)
+                continue
+            if msg.role.value == "tool" and msg.tool_call_id:
+                chat.set_tool_result(
+                    msg.tool_call_id,
+                    msg.content,
+                    show_waiting=False,
+                    create_if_missing=True,
+                )
+
+    def _load_session(self, session: Session, note: str | None = None) -> None:
+        """Load a session into the agent and re-render UI."""
+        self.agent.load_session(session)
+        self._session = session
+
+        chat = self.query_one("#chat-view", ChatView)
+        chat.clear_chat()
+        self._render_banner(chat)
+        if note:
+            chat.add_system_message(note)
+        self._render_session_messages(chat, session)
+
+        status = self.query_one("#status-line", StatusBar)
+        status.set_model(self.config.model)
+        status.set_thinking(self.config.thinking_level)
+        status.set_session(session.metadata.id, session.metadata.parent_session_id)
+        status.set_tokens(self.agent.total_tokens, self.config.context_max_tokens)
+
+    def _load_session_path(self, path: Path) -> None:
+        """Load a session from a specific file path."""
+        chat = self.query_one("#chat-view", ChatView)
+        if not path.exists():
+            chat.add_system_message(f"session file not found: {path}")
+            return
+        try:
+            session = Session.load(path)
+        except Exception as exc:
+            chat.add_system_message(f"failed to load session: {exc}")
+            return
+        self._load_session(session, note=f"loaded session {session.metadata.id}")
+
+    def _resolve_message_id(self, session: Session, spec: str) -> str | None:
+        """Resolve a message id from a spec (id, prefix, index, last)."""
+        messages = session.messages
+        if not messages:
+            return None
+        spec = spec.strip()
+        if not spec or spec.lower() in {"last", "latest"}:
+            return messages[-1].id
+        if spec.lower() in {"assistant", "last-assistant"}:
+            for msg in reversed(messages):
+                if msg.role == Role.ASSISTANT:
+                    return msg.id
+            return messages[-1].id
+        if spec.isdigit():
+            idx = int(spec)
+            if 0 <= idx < len(messages):
+                return messages[idx].id
+        for msg in messages:
+            if msg.id == spec:
+                return msg.id
+        matches = [msg for msg in messages if msg.id.startswith(spec)]
+        if len(matches) == 1:
+            return matches[0].id
+        return None
+
+    def _fork_from_message(self, message_id: str) -> None:
+        """Fork the current session from a given message id."""
+        chat = self.query_one("#chat-view", ChatView)
+        parent_id = self.agent.session.metadata.id
+        try:
+            new_session = self.agent.session.fork(message_id, self.config.session_dir)
+        except Exception as exc:
+            chat.add_system_message(f"failed to fork session: {exc}")
+            return
+        note = f"forked from {parent_id} at {message_id}"
+        self._load_session(new_session, note=note)
+
+    def _set_leaf(self, message_id: str) -> None:
+        """Move the active leaf to a given message id."""
+        chat = self.query_one("#chat-view", ChatView)
+        try:
+            self.agent.session.set_leaf(message_id)
+        except Exception as exc:
+            chat.add_system_message(f"failed to set leaf: {exc}")
+            return
+        self._load_session(self.agent.session, note=f"branched to {message_id}")
+
+    def _resolve_entry_id(self, session: Session, spec: str) -> str | None:
+        """Resolve an entry id across all message entries in the session."""
+        entries = list(session.entries)
+        if not entries:
+            return None
+        spec = spec.strip()
+        if not spec or spec.lower() in {"last", "latest"}:
+            return entries[-1].id
+        if spec.lower() in {"assistant", "last-assistant"}:
+            for entry in reversed(entries):
+                if isinstance(entry, MessageEntry) and entry.message.role == Role.ASSISTANT:
+                    return entry.id
+            return entries[-1].id
+        for entry in entries:
+            if entry.id == spec:
+                return entry.id
+        matches = [e for e in entries if e.id.startswith(spec)]
+        if len(matches) == 1:
+            return matches[0].id
+        if spec.isdigit():
+            msg_entries = [e for e in entries if isinstance(e, MessageEntry)]
+            idx = int(spec)
+            if 0 <= idx < len(msg_entries):
+                return msg_entries[idx].id
+        return None
+
     def compose(self) -> ComposeResult:
         """Compose the UI."""
         yield ChatView(id="chat-view")
@@ -121,6 +260,8 @@ class AgentApp(App[None]):
         """Initialize on mount."""
         # Ensure agent is created so session model restore applies before UI renders
         _ = self.agent
+        if self._session is None:
+            self._session = self.agent.session
 
         # Register and apply theme
         self.register_theme(MINIMAL_THEME)
@@ -128,16 +269,15 @@ class AgentApp(App[None]):
 
         # Show banner
         chat = self.query_one("#chat-view", ChatView)
-        chat.mount(
-            Static(
-                f"{BANNER}\n\nmy-own-coding-agent | {self.config.model}", classes="message-system"
-            )
-        )
+        self._render_banner(chat)
 
         # Update status bar
         status = self.query_one("#status-line", StatusBar)
         status.set_model(self.config.model)
         status.set_thinking(self.config.thinking_level)
+        status.set_session(
+            self.agent.session.metadata.id, self.agent.session.metadata.parent_session_id
+        )
 
         # Focus input
         self.query_one("#prompt-input", PromptInput).focus()
@@ -152,29 +292,7 @@ class AgentApp(App[None]):
 
         # Show existing messages if resuming a session
         if self._session and self._session.messages:
-            for msg in self._session.messages:
-                if msg.role.value == "system":
-                    continue
-                if msg.role.value == "user":
-                    chat.add_user_message(msg.content)
-                    continue
-                if msg.role.value == "assistant":
-                    if msg.thinking and msg.thinking.text:
-                        thinking = ThinkingWidget()
-                        chat.mount(thinking)
-                        thinking.append_text(msg.thinking.text)
-                    chat.mount(MessageWidget("assistant", msg.content))
-                    if msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            chat.complete_tool_call(tc)
-                    continue
-                if msg.role.value == "tool" and msg.tool_call_id:
-                    chat.set_tool_result(
-                        msg.tool_call_id,
-                        msg.content,
-                        show_waiting=False,
-                        create_if_missing=True,
-                    )
+            self._render_session_messages(chat, self._session)
 
     @on(PromptInput.Submitted, "#prompt-input")
     async def on_input_submitted(self, event: PromptInput.Submitted) -> None:
@@ -196,12 +314,71 @@ class AgentApp(App[None]):
         if prompt.lower() == "/new":
             self.action_new()
             return
+        if prompt.lower() == "/load":
+            self.push_screen(
+                SessionLoadModal(
+                    self.config.session_dir,
+                    on_load=self._load_session_path,
+                )
+            )
+            return
+        if prompt.lower().startswith("/load "):
+            path_text = prompt[6:].strip()
+            if path_text:
+                self._load_session_path(Path(path_text).expanduser())
+            return
+        if prompt.lower() == "/resume":
+            self.push_screen(
+                SessionLoadModal(
+                    self.config.session_dir,
+                    on_load=self._load_session_path,
+                )
+            )
+            return
+        if prompt.lower().startswith("/resume "):
+            path_text = prompt[8:].strip()
+            if path_text:
+                self._load_session_path(Path(path_text).expanduser())
+            return
+        if prompt.lower() == "/fork":
+            self.push_screen(
+                SessionForkModal(
+                    self.agent.session,
+                    on_fork=self._fork_from_message,
+                )
+            )
+            return
+        if prompt.lower().startswith("/fork "):
+            spec = prompt[6:].strip()
+            message_id = self._resolve_message_id(self.agent.session, spec)
+            if not message_id:
+                chat.add_system_message(f"could not resolve message: {spec}")
+                return
+            self._fork_from_message(message_id)
+            return
+        if prompt.lower() == "/tree":
+            self.push_screen(
+                SessionTreeModal(
+                    self.agent.session,
+                    on_select=self._set_leaf,
+                )
+            )
+            return
+        if prompt.lower().startswith("/tree "):
+            spec = prompt[6:].strip()
+            message_id = self._resolve_entry_id(self.agent.session, spec)
+            if not message_id:
+                chat.add_system_message(f"could not resolve entry: {spec}")
+                return
+            self._set_leaf(message_id)
+            return
         if prompt.lower() == "/quit":
             self.exit()
             return
         if prompt.lower() == "/help":
             chat.add_system_message(
-                "ctrl+c quit | ctrl+l clear | /clear | /new | /context | /help | /model | /quit"
+                "ctrl+c quit | ctrl+l clear | /clear | /new | /load | /resume | /fork "
+                "| /tree | /context | /help | /model | /quit"
             )
             return
         if prompt.lower() == "/context":
@@ -338,8 +515,12 @@ class AgentApp(App[None]):
         self._session = self.agent.session
         chat = self.query_one("#chat-view", ChatView)
         chat.clear_chat()
+        self._render_banner(chat)
         chat.add_system_message("new session started")
         status = self.query_one("#status-line", StatusBar)
+        status.set_session(
+            self.agent.session.metadata.id, self.agent.session.metadata.parent_session_id
+        )
         status.set_tokens(self.agent.total_tokens, self.config.context_max_tokens)
 
     def _switch_model(self, model_name: str) -> None:

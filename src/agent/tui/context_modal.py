@@ -80,8 +80,13 @@ class ContextModal(ModalScreen[None]):
         lines.append("[bold cyan]SESSION[/]")
         session = self._agent.session
         lines.append(f"  ID: {session.metadata.id}")
+        if session.metadata.parent_session_id:
+            lines.append(f"  Parent: {session.metadata.parent_session_id}")
+        if session.leaf_id:
+            lines.append(f"  Leaf: {session.leaf_id}")
         lines.append(f"  Created: {session.metadata.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"  Working dir: {session.metadata.cwd}")
+        lines.append(f"  File: {session.path}")
         lines.append("")
 
         # Message counts

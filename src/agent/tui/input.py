@@ -19,7 +19,18 @@ if TYPE_CHECKING:
 
 
 # Built-in commands available for autocomplete
-BUILTIN_COMMANDS = ["/clear", "/new", "/context", "/help", "/model", "/quit"]
+BUILTIN_COMMANDS = [
+    "/clear",
+    "/new",
+    "/load",
+    "/resume",
+    "/fork",
+    "/tree",
+    "/context",
+    "/help",
+    "/model",
+    "/quit",
+]
 
 
 class PromptInput(Widget, can_focus=False):
@@ -155,7 +166,18 @@ class PromptInput(Widget, can_focus=False):
         value = event.value.strip()
         if value:
             lower = value.lower()
-            excluded = {"/clear", "/new", "/quit", "/help", "/context", "/model"}
+            excluded = {
+                "/clear",
+                "/new",
+                "/load",
+                "/resume",
+                "/fork",
+                "/tree",
+                "/quit",
+                "/help",
+                "/context",
+                "/model",
+            }
             if lower.startswith("/model "):
                 excluded.add(lower.split(" ", 1)[0])
             if lower not in excluded and (not self._history or value != self._history[-1]):

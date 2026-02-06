@@ -23,6 +23,8 @@ class StatusBar(Horizontal):
         self._thinking = "off"
         self._tokens = 0
         self._max_tokens = 0
+        self._session_id: str | None = None
+        self._session_parent: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-left")
@@ -33,6 +35,11 @@ class StatusBar(Horizontal):
 
     def _update_display(self) -> None:
         left = self._model
+
+        if self._session_id:
+            left += f"  session:{self._session_id}"
+            if self._session_parent:
+                left += f" (fork:{self._session_parent})"
 
         # Show thinking level if not off
         if self._thinking != "off":
@@ -62,4 +69,10 @@ class StatusBar(Horizontal):
         """Set the token count."""
         self._tokens = tokens
         self._max_tokens = max_tokens
+        self._update_display()
+
+    def set_session(self, session_id: str, parent_id: str | None = None) -> None:
+        """Set the session display."""
+        self._session_id = session_id
+        self._session_parent = parent_id
         self._update_display()

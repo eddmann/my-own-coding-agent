@@ -247,3 +247,166 @@ ModelModal {
     text-align: center;
     color: $foreground-muted;
 }
+
+/* Session Load Modal */
+SessionLoadModal {
+    align: center middle;
+}
+
+#session-modal {
+    width: 85%;
+    height: 70%;
+    max-width: 90;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#session-title {
+    dock: top;
+    height: 1;
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    padding: 0 0 1 0;
+}
+
+#session-content {
+    height: 1fr;
+    scrollbar-size: 1 1;
+}
+
+#session-list {
+    height: 1fr;
+    margin: 0 0 1 0;
+}
+
+#session-load-btn {
+    width: 100%;
+    margin: 1 0 0 0;
+}
+
+#session-empty {
+    color: $foreground-muted;
+    padding: 1 0;
+}
+
+#session-hint {
+    dock: bottom;
+    height: 1;
+    text-align: center;
+    color: $foreground-muted;
+}
+
+/* Session Fork Modal */
+SessionForkModal {
+    align: center middle;
+}
+
+#fork-modal {
+    width: 85%;
+    height: 75%;
+    max-width: 100;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#fork-title {
+    dock: top;
+    height: 1;
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    padding: 0 0 1 0;
+}
+
+#fork-content {
+    height: 1fr;
+    scrollbar-size: 1 1;
+}
+
+#fork-summary {
+    margin: 0 0 1 0;
+    color: $foreground-muted;
+}
+
+#fork-list {
+    height: 1fr;
+    margin: 0 0 1 0;
+}
+
+#fork-btn {
+    width: 100%;
+    margin: 1 0 0 0;
+}
+
+#fork-empty {
+    color: $foreground-muted;
+    padding: 1 0;
+}
+
+#fork-hint {
+    dock: bottom;
+    height: 1;
+    text-align: center;
+    color: $foreground-muted;
+}
+
+/* Session Tree Modal */
+SessionTreeModal {
+    align: center middle;
+}
+
+#tree-modal {
+    width: 85%;
+    height: 75%;
+    max-width: 100;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#tree-title {
+    dock: top;
+    height: 1;
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    padding: 0 0 1 0;
+}
+
+#tree-content {
+    height: 1fr;
+    scrollbar-size: 1 1;
+}
+
+#tree-view {
+    height: 1fr;
+}
+
+#linear-list {
+    height: 1fr;
+}
+
+#tree-summary {
+    margin: 0 0 1 0;
+    color: $foreground-muted;
+}
+
+#tree-btn {
+    width: 100%;
+    margin: 1 0 0 0;
+}
+
+#tree-empty {
+    color: $foreground-muted;
+    padding: 1 0;
+}
+
+#tree-hint {
+    dock: bottom;
+    height: 1;
+    text-align: center;
+    color: $foreground-muted;
+}

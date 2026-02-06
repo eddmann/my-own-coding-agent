@@ -35,6 +35,7 @@ from .common import (
     OpenAIBase,
     OpenAIError,
     apply_pricing,
+    map_reasoning_effort,
     normalize_fc_id,
     parse_api_error,
     parse_streaming_json,
@@ -221,14 +222,9 @@ class OpenAIResponsesProvider(OpenAIBase):
             payload["include"] = ["reasoning.encrypted_content"]
             reasoning_enabled = True
         elif caps.is_reasoning and options and options.thinking_level:
-            effort_map = {
-                "minimal": "low",
-                "low": "low",
-                "medium": "medium",
-                "high": "high",
-            }
-            if options.thinking_level in effort_map:
-                payload["reasoning"] = {"effort": effort_map[options.thinking_level]}
+            effort = map_reasoning_effort(self.model, options.thinking_level)
+            if effort is not None:
+                payload["reasoning"] = {"effort": effort}
                 payload["include"] = ["reasoning.encrypted_content"]
                 reasoning_enabled = True
 

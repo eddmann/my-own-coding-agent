@@ -305,6 +305,37 @@ async def test_anthropic_payload_includes_thinking_budget() -> None:
 
 
 @pytest.mark.asyncio
+async def test_anthropic_opus_46_uses_adaptive_thinking() -> None:
+    captured = SimpleNamespace(json=None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.json = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, content=_sse_payload([]))
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(base_url=ANTHROPIC_API_URL, transport=transport)
+    base_max_tokens = 2048
+    provider = AnthropicProvider(
+        api_key="sk-ant-test",
+        model="claude-opus-4-6",
+        max_tokens=base_max_tokens,
+        http_client=client,
+    )
+
+    options = StreamOptions(thinking_level="xhigh")
+
+    stream = provider.stream([Message.user("hi")], options=options)
+    await stream.result()
+
+    await provider.close()
+
+    assert captured.json is not None
+    assert captured.json.get("thinking") == {"type": "adaptive"}
+    assert captured.json.get("output_config") == {"effort": "max"}
+    assert captured.json.get("max_tokens") == base_max_tokens
+
+
+@pytest.mark.asyncio
 async def test_anthropic_streams_error_on_non_2xx_response() -> None:
     error_message = "bad request"
     http_bad_request = 400

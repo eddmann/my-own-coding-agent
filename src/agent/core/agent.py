@@ -46,6 +46,7 @@ from agent.extensions.loader import ExtensionLoader
 from agent.extensions.runner import ExtensionRunner
 from agent.extensions.types import ToolCallEvent, ToolResultEvent
 from agent.llm.events import StreamOptions, ToolCallBlock
+from agent.llm.events import ThinkingLevel as StreamThinkingLevel
 from agent.prompts.loader import PromptTemplateLoader
 from agent.prompts.parser import ParsedCommand, expand_template, parse_command
 from agent.skills.loader import SkillLoader
@@ -247,7 +248,7 @@ class Agent:
             cast("Any", self.provider)._encoder = None
 
         # Clamp thinking level to model capabilities
-        available = get_available_thinking_levels(model)
+        available = get_available_thinking_levels(model, provider=self.config.provider)
         self.config.thinking_level = clamp_thinking_level(self.config.thinking_level, available)
 
         # Persist selection in session entries
@@ -357,7 +358,7 @@ class Agent:
             cast("Any", self.provider)._encoder = None
 
         # Clamp thinking level to model capabilities
-        available = get_available_thinking_levels(model)
+        available = get_available_thinking_levels(model, provider=self.config.provider)
         self.config.thinking_level = clamp_thinking_level(self.config.thinking_level, available)
 
         # Emit model selection event (restore)
@@ -520,9 +521,9 @@ class Agent:
 
     def _build_stream_options(self, cancel_event: asyncio.Event | None = None) -> StreamOptions:
         """Build StreamOptions from config."""
-        thinking_level: str | None = None
+        thinking_level: StreamThinkingLevel | None = None
         if self.config.thinking_level and self.config.thinking_level != ThinkingLevel.OFF:
-            thinking_level = self.config.thinking_level.value
+            thinking_level = cast("StreamThinkingLevel", self.config.thinking_level.value)
 
         return StreamOptions(
             temperature=self.config.temperature,

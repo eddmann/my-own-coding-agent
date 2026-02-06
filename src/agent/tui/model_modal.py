@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
@@ -13,7 +13,7 @@ from agent.core.config import (
     ThinkingLevel,
     get_available_thinking_levels,
 )
-from agent.llm.models import get_model_info, supports_reasoning
+from agent.llm.models import get_model_info, resolve_capability_provider, supports_reasoning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
     from agent.core.config import Config
-    from agent.llm.models import Provider
     from agent.llm.provider import LLMProvider
 
 
@@ -78,7 +77,8 @@ class ModelModal(ModalScreen[None]):
 
     def _build_thinking_radio(self) -> RadioSet:
         """Build thinking level radio set."""
-        available = get_available_thinking_levels(self._provider.model)
+        provider_hint = resolve_capability_provider(self._config.provider)
+        available = get_available_thinking_levels(self._provider.model, provider=provider_hint)
 
         buttons = []
         for level in ThinkingLevel:
@@ -110,11 +110,7 @@ class ModelModal(ModalScreen[None]):
             reasoning_support = "Yes" if model_info.reasoning else "No"
             max_tokens = f"{model_info.max_output_tokens:,}"
         else:
-            provider_hint = (
-                cast("Provider", self._config.provider)
-                if self._config.provider in ("anthropic", "openai", "openai-compat")
-                else None
-            )
+            provider_hint = resolve_capability_provider(self._config.provider)
             reasoning = supports_reasoning(new_model, provider_hint)
             reasoning_support = "Yes" if reasoning else "No"
             max_tokens = "(unknown)"
@@ -153,7 +149,8 @@ class ModelModal(ModalScreen[None]):
 
     async def _rebuild_thinking_radio(self, model: str) -> None:
         """Rebuild thinking radio for a new model."""
-        available = get_available_thinking_levels(model)
+        provider_hint = resolve_capability_provider(self._config.provider)
+        available = get_available_thinking_levels(model, provider=provider_hint)
 
         buttons = []
         for level in ThinkingLevel:

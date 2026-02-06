@@ -166,6 +166,13 @@ MODELS: dict[str, ModelInfo] = {
         reasoning=True,
         max_output_tokens=64000,
     ),
+    "claude-opus-4-6": ModelInfo(
+        id="claude-opus-4-6",
+        provider="anthropic",
+        reasoning=True,
+        xhigh=True,  # Anthropic adaptive thinking supports "max" effort
+        max_output_tokens=128000,
+    ),
     # Aliases
     "claude-opus-4": ModelInfo(
         id="claude-opus-4",
@@ -336,6 +343,21 @@ MODELS: dict[str, ModelInfo] = {
         reasoning=True,
         max_output_tokens=65536,
     ),
+    # GPT-5.3 family - HAS reasoning + xhigh
+    "gpt-5.3": ModelInfo(
+        id="gpt-5.3",
+        provider="openai",
+        reasoning=True,
+        xhigh=True,  # Supports xhigh
+        max_output_tokens=128000,
+    ),
+    "gpt-5.3-codex": ModelInfo(
+        id="gpt-5.3-codex",
+        provider="openai",
+        reasoning=True,
+        xhigh=True,  # Supports xhigh
+        max_output_tokens=128000,
+    ),
     # O1 family - HAS reasoning
     "o1": ModelInfo(
         id="o1",
@@ -409,23 +431,90 @@ MODELS: dict[str, ModelInfo] = {
 }
 
 
-# Models that support xhigh thinking level
-XHIGH_MODELS = {"gpt-5.1-codex-max", "gpt-5.2", "gpt-5.2-codex"}
+# Models that support xhigh thinking level.
+XHIGH_MODELS = {"gpt-5.1-codex-max", "gpt-5.2", "gpt-5.2-codex", "gpt-5.3", "gpt-5.3-codex"}
+
+
+def resolve_capability_provider(provider: str | None) -> Provider | None:
+    """Map config/runtime provider names to capability provider families."""
+    if provider == "anthropic":
+        return "anthropic"
+    if provider == "openai":
+        return "openai"
+    if provider:
+        # Everything else currently routes through OpenAI-compatible transport.
+        return "openai-compat"
+    return None
+
+
+def _normalize_capability_model_id(model_id: str) -> tuple[str, str | None]:
+    """Normalize model IDs for capability checks.
+
+    Returns:
+        Tuple of (normalized_model_id, optional_provider_prefix)
+    """
+    normalized = model_id.strip().lower()
+    prefix: str | None = None
+    if "/" in normalized:
+        prefix, normalized = normalized.split("/", 1)
+
+    # Normalize common alias variants to registry keys.
+    normalized = normalized.replace("claude-opus-4.6", "claude-opus-4-6")
+    return normalized, prefix
+
+
+def _effective_capability_provider(
+    provider: str | None,
+    model_prefix: str | None,
+) -> Provider | None:
+    capability_provider = resolve_capability_provider(provider)
+    if capability_provider != "openai-compat":
+        return capability_provider
+
+    # OpenAI-compatible routes often encode upstream provider in the model ID.
+    if model_prefix == "openai":
+        return "openai"
+    if model_prefix == "anthropic":
+        return "anthropic"
+    return capability_provider
+
+
+def _looks_like_opus_46(model_id: str) -> bool:
+    return "opus-4-6" in model_id or "opus-4.6" in model_id
+
+
+def model_supports_xhigh(model_id: str) -> bool:
+    """Return model-level xhigh capability without provider policy."""
+    normalized_model, _ = _normalize_capability_model_id(model_id)
+    if normalized_model in XHIGH_MODELS:
+        return True
+    info = MODELS.get(normalized_model)
+    return bool(info and info.xhigh)
+
+
+def provider_allows_xhigh(model_id: str, provider: str | None = None) -> bool:
+    """Apply provider/API policy on top of model-level xhigh capability."""
+    normalized_model, _ = _normalize_capability_model_id(model_id)
+    capability_provider = resolve_capability_provider(provider)
+
+    # Anthropic adaptive effort "max" is only available via native Anthropic API.
+    if _looks_like_opus_46(normalized_model):
+        return capability_provider == "anthropic"
+
+    return model_supports_xhigh(normalized_model)
 
 
 def get_model_info(model_id: str) -> ModelInfo | None:
-    """Get model info from registry.
+    """Get model info from registry with normalized lookup."""
+    info = MODELS.get(model_id)
+    if info is not None:
+        return info
 
-    Args:
-        model_id: The model ID to look up
-
-    Returns:
-        ModelInfo if found, None otherwise
-    """
-    return MODELS.get(model_id)
+    normalized_model, _ = _normalize_capability_model_id(model_id)
+    return MODELS.get(normalized_model)
 
 
-def supports_reasoning(model_id: str, provider: Provider | None = None) -> bool:
+def supports_reasoning(model_id: str, provider: str | None = None) -> bool:
     """Check if a model supports reasoning/thinking.
 
     First checks the registry. If not found, falls back to
@@ -438,16 +527,19 @@ def supports_reasoning(model_id: str, provider: Provider | None = None) -> bool:
     Returns:
         True if model supports reasoning
     """
+    normalized_model, model_prefix = _normalize_capability_model_id(model_id)
+    effective_provider = _effective_capability_provider(provider, model_prefix)
+
     # Check registry first
-    info = get_model_info(model_id)
+    info = get_model_info(normalized_model)
     if info is not None:
         return info.reasoning
 
     # Fallback: name-based heuristics for models not in registry
-    model_lower = model_id.lower()
+    model_lower = normalized_model
 
     # Anthropic: claude-3.7+, claude-4+ support reasoning
-    if provider == "anthropic" or "claude" in model_lower:
+    if effective_provider == "anthropic" or "claude" in model_lower:
         # Claude 3.7+ supports extended thinking
         if "claude-3-7" in model_lower or "claude-3.7" in model_lower:
             return True
@@ -458,7 +550,7 @@ def supports_reasoning(model_id: str, provider: Provider | None = None) -> bool:
         return "claude-sonnet-4" in model_lower or "claude-opus-4" in model_lower
 
     # OpenAI: o1/o3/o4 and gpt-5+ support reasoning
-    if provider == "openai":
+    if effective_provider in ("openai", "openai-compat"):
         if model_lower.startswith(("o1", "o3", "o4")):
             return True
         # gpt-5+ supports reasoning (except gpt-5-chat-latest)
@@ -470,7 +562,7 @@ def supports_reasoning(model_id: str, provider: Provider | None = None) -> bool:
     return False
 
 
-def supports_xhigh(model_id: str) -> bool:
+def supports_xhigh(model_id: str, provider: str | None = None) -> bool:
     """Check if a model supports xhigh thinking level.
 
     Currently only certain OpenAI models support this,
@@ -482,13 +574,6 @@ def supports_xhigh(model_id: str) -> bool:
     Returns:
         True if model supports xhigh thinking
     """
-    # Check explicit xhigh set first
-    if model_id in XHIGH_MODELS:
-        return True
-
-    # Check registry
-    info = get_model_info(model_id)
-    if info is not None:
-        return info.xhigh
-
-    return False
+    if provider is None:
+        return model_supports_xhigh(model_id)
+    return provider_allows_xhigh(model_id, provider)

@@ -48,7 +48,10 @@ THINKING_BUDGETS: dict[ThinkingLevel, int] = {
 }
 
 
-def get_available_thinking_levels(model_id: str) -> list[ThinkingLevel]:
+def get_available_thinking_levels(
+    model_id: str,
+    provider: str | None = None,
+) -> list[ThinkingLevel]:
     """Get available thinking levels for a model.
 
     Args:
@@ -59,10 +62,10 @@ def get_available_thinking_levels(model_id: str) -> list[ThinkingLevel]:
     """
     from agent.llm.models import supports_reasoning, supports_xhigh
 
-    if not supports_reasoning(model_id):
+    if not supports_reasoning(model_id, provider=provider):
         return [ThinkingLevel.OFF]
 
-    if supports_xhigh(model_id):
+    if supports_xhigh(model_id, provider=provider):
         return THINKING_LEVELS_WITH_XHIGH
 
     return THINKING_LEVELS

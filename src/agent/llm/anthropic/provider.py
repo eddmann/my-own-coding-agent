@@ -171,6 +171,24 @@ def _map_stop_reason(anthropic_reason: str | None) -> StopReason:
     return mapping.get(anthropic_reason, "stop")
 
 
+def _supports_adaptive_thinking(model_id: str) -> bool:
+    """Return whether model uses Anthropic adaptive thinking (Opus 4.6+)."""
+    model_lower = model_id.lower()
+    return "opus-4-6" in model_lower or "opus-4.6" in model_lower
+
+
+def _map_thinking_level_to_effort(level: ThinkingLevel) -> str:
+    """Map local thinking levels to Anthropic adaptive effort values."""
+    mapping = {
+        ThinkingLevel.MINIMAL: "low",
+        ThinkingLevel.LOW: "low",
+        ThinkingLevel.MEDIUM: "medium",
+        ThinkingLevel.HIGH: "high",
+        ThinkingLevel.XHIGH: "max",
+    }
+    return mapping.get(level, "high")
+
+
 @dataclass(slots=True)
 class AnthropicProvider:
     """Native Anthropic API provider with full feature support."""
@@ -340,16 +358,21 @@ class AnthropicProvider:
                 thinking_level = ThinkingLevel(options.thinking_level)
 
         if thinking_level and thinking_level != ThinkingLevel.OFF:
-            budget = THINKING_BUDGETS.get(thinking_level, 8192)
-            payload["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget,
-            }
-            # Ensure max_tokens can accommodate thinking + response
-            payload["max_tokens"] = min(
-                max_tokens + budget,
-                128000,  # Claude's max output tokens
-            )
+            if _supports_adaptive_thinking(self.model):
+                # Opus 4.6+ uses adaptive thinking with explicit effort levels.
+                payload["thinking"] = {"type": "adaptive"}
+                payload["output_config"] = {"effort": _map_thinking_level_to_effort(thinking_level)}
+            else:
+                budget = THINKING_BUDGETS.get(thinking_level, 8192)
+                payload["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": budget,
+                }
+                # Ensure max_tokens can accommodate thinking + response
+                payload["max_tokens"] = min(
+                    max_tokens + budget,
+                    128000,  # Claude's max output tokens
+                )
 
         # Tool choice handling (Anthropic format)
         if options and options.tool_choice and tools:

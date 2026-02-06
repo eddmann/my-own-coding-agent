@@ -98,6 +98,29 @@ def uses_responses_api(model: str) -> bool:
     return "codex" in model.lower()
 
 
+def map_reasoning_effort(model: str, thinking_level: str | None) -> str | None:
+    """Map generic thinking levels to OpenAI reasoning effort values."""
+    if not thinking_level:
+        return None
+
+    if thinking_level in {"minimal", "low", "medium", "high"}:
+        effort_map = {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+        }
+        return effort_map[thinking_level]
+
+    if thinking_level != "xhigh":
+        return None
+
+    # xhigh is only available for select models (e.g., GPT-5.2/5.3 families).
+    from agent.llm.models import supports_xhigh
+
+    return "xhigh" if supports_xhigh(model, provider="openai") else "high"
+
+
 def normalize_fc_id(value: str) -> str:
     """Normalize function call IDs for Responses API (must start with 'fc')."""
     if not value:

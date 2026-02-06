@@ -34,6 +34,7 @@ from .common import (
     OpenAIBase,
     OpenAIError,
     apply_pricing,
+    map_reasoning_effort,
     map_stop_reason,
     parse_api_error,
     parse_streaming_json,
@@ -71,14 +72,9 @@ class OpenAIChatProvider(OpenAIBase):
         if caps.fixed_reasoning_effort:
             payload["reasoning_effort"] = caps.fixed_reasoning_effort
         elif caps.is_reasoning and options and options.thinking_level:
-            effort_map = {
-                "minimal": "low",
-                "low": "low",
-                "medium": "medium",
-                "high": "high",
-            }
-            if options.thinking_level in effort_map:
-                payload["reasoning_effort"] = effort_map[options.thinking_level]
+            effort = map_reasoning_effort(self.model, options.thinking_level)
+            if effort is not None:
+                payload["reasoning_effort"] = effort
 
         if caps.supports_temperature and not caps.is_reasoning:
             temp = (

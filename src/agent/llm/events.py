@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     import asyncio
 
 StopReason = Literal["stop", "length", "tool_use", "error", "aborted"]
+ThinkingLevel = Literal["off", "minimal", "low", "medium", "high", "xhigh"]
 
 
 @dataclass(slots=True)
@@ -48,7 +49,7 @@ class StreamOptions:
 
     temperature: float | None = None
     max_tokens: int | None = None
-    thinking_level: str | None = None  # "off", "minimal", "low", "medium", "high"
+    thinking_level: ThinkingLevel | None = None
     api_key: str | None = None
     tool_choice: ToolChoice = None  # "auto", "none", "required"/"any", {"name": "tool"}
     cancel_event: asyncio.Event | None = None  # Set to abort the request

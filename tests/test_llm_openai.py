@@ -180,6 +180,82 @@ async def test_openai_responses_payload_and_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_responses_payload_uses_xhigh_for_gpt53_codex() -> None:
+    captured = SimpleNamespace(json=None)
+    zero_tokens = 0
+    events = [
+        {
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "usage": {
+                    "input_tokens": zero_tokens,
+                    "output_tokens": zero_tokens,
+                    "input_tokens_details": {"cached_tokens": zero_tokens},
+                },
+            },
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.json = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, content=_sse_payload(events))
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(base_url=OPENAI_API_URL, transport=transport)
+    provider = OpenAIProvider(
+        api_key="sk-test",
+        model="gpt-5.3-codex",
+        http_client=client,
+    )
+
+    stream = provider.stream([Message.user("hi")], options=StreamOptions(thinking_level="xhigh"))
+    await stream.result()
+    await provider.client.aclose()
+
+    assert captured.json is not None
+    assert captured.json.get("reasoning", {}).get("effort") == "xhigh"
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_payload_clamps_xhigh_for_non_xhigh_model() -> None:
+    captured = SimpleNamespace(json=None)
+    zero_tokens = 0
+    events = [
+        {
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "usage": {
+                    "input_tokens": zero_tokens,
+                    "output_tokens": zero_tokens,
+                    "input_tokens_details": {"cached_tokens": zero_tokens},
+                },
+            },
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.json = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, content=_sse_payload(events))
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(base_url=OPENAI_API_URL, transport=transport)
+    provider = OpenAIProvider(
+        api_key="sk-test",
+        model="gpt-5-codex",
+        http_client=client,
+    )
+
+    stream = provider.stream([Message.user("hi")], options=StreamOptions(thinking_level="xhigh"))
+    await stream.result()
+    await provider.client.aclose()
+
+    assert captured.json is not None
+    assert captured.json.get("reasoning", {}).get("effort") == "high"
+
+
+@pytest.mark.asyncio
 async def test_openai_responses_payload_replays_reasoning_and_output_ids() -> None:
     captured = SimpleNamespace(json=None)
     response_status = "completed"

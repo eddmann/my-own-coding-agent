@@ -4,7 +4,11 @@
 
 An educational, expandable coding‑agent harness built in Python.
 
-It started as a single‑file agent built from notes and experiments, and grew into a full learning playground inspired by Codex, Open Code, Claude Code, and [Pi](https://github.com/badlogic/pi-mono). The goal here is simple: **learn how these systems work by building one** and then expand it with more bells and whistles over time. It’s not the best, but it’s mine.
+It started as a single‑file agent built from notes and experiments, and grew into a full learning playground inspired by Codex, Open Code, Claude Code, and [Pi](https://github.com/badlogic/pi-mono). The goal here is simple: **learn how these systems work by building one** and then expand it with more bells and whistles over time. It's not the best, but it's mine.
+
+<p align="center">
+  <img src="examples/usage/lisp-interpreter/demo.gif" alt="Building a Lisp interpreter from a problem spec" width="700">
+</p>
 
 ## Why this exists
 
@@ -136,6 +140,8 @@ See `docs/extensions.md` for the API shape.
   - [`examples/extensions/protected-paths.py`](examples/extensions/protected-paths.py)
   - [`examples/extensions/commit-guard.py`](examples/extensions/commit-guard.py)
   - [`examples/extensions/todo-capture.py`](examples/extensions/todo-capture.py)
+- Usage:
+  - [Lisp interpreter](examples/usage/lisp-interpreter/) — builds a tiny Lisp interpreter in TypeScript from a problem spec
 
 ## License
 

@@ -6,15 +6,15 @@ An educational, expandable coding‑agent harness built in Python.
 
 It started as a single‑file agent built from notes and experiments, and grew into a full learning playground inspired by Codex, Open Code, Claude Code, and [Pi](https://github.com/badlogic/pi-mono). The goal here is simple: **learn how these systems work by building one** and then expand it with more bells and whistles over time. It's not the best, but it's mine.
 
-<p align="center">
-  <img src="examples/usage/lisp-interpreter/demo.gif" alt="Building a Lisp interpreter from a problem spec" width="700">
-</p>
-
 ## Why this exists
 
 I read a [couple](https://ampcode.com/how-to-build-an-agent) of [posts](https://ghuntley.com/agent/) on building agents that made me want to own the full harness—not just use a product. I wanted something I could understand end‑to‑end, tweak freely, and grow as I learned. This project is the result: a readable, hackable agent loop with modular pieces I can keep expanding.
 
 This is also a unique project in that it is self‑bootstrapped: I built the initial agent using Codex, then added the tools and loop needed for it to help build itself. Most new features I add now are developed with the agent itself.
+
+<p align="center">
+  <img src="examples/usage/lisp-interpreter/demo.gif" alt="Building a Lisp interpreter from a problem spec" width="700">
+</p>
 
 ## What it provides
 

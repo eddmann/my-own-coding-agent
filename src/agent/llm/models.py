@@ -439,7 +439,7 @@ def resolve_capability_provider(provider: str | None) -> Provider | None:
     """Map config/runtime provider names to capability provider families."""
     if provider == "anthropic":
         return "anthropic"
-    if provider == "openai":
+    if provider in {"openai", "openai-codex"}:
         return "openai"
     if provider:
         # Everything else currently routes through OpenAI-compatible transport.

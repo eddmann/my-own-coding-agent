@@ -122,6 +122,7 @@ class TestModelCapabilities:
 
     def test_provider_resolution_for_capability_checks(self) -> None:
         assert resolve_capability_provider("openai") == "openai"
+        assert resolve_capability_provider("openai-codex") == "openai"
         assert resolve_capability_provider("anthropic") == "anthropic"
         assert resolve_capability_provider("openrouter") == "openai-compat"
         assert resolve_capability_provider(None) is None

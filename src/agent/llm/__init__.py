@@ -27,6 +27,7 @@ from agent.llm.events import (
     Usage,
 )
 from agent.llm.openai import OpenAIError, OpenAIProvider
+from agent.llm.openai_codex import OpenAICodexProvider
 from agent.llm.openai_compat import LLMError, OpenAICompatibleProvider
 from agent.llm.pricing import (
     ANTHROPIC_PRICING,
@@ -46,6 +47,7 @@ __all__ = [
     "LLMError",
     "LLMProvider",
     "OpenAICompatibleProvider",
+    "OpenAICodexProvider",
     "OpenAIError",
     "OpenAIProvider",
     # Event stream

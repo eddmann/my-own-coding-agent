@@ -175,6 +175,18 @@ class Agent:
                 max_tokens=config.max_output_tokens,
             )
 
+        # Use OpenAI Codex provider for ChatGPT Plus/Pro OAuth-backed Codex API
+        if config.provider == "openai-codex":
+            from agent.llm.openai_codex import OpenAICodexProvider
+
+            return OpenAICodexProvider(
+                api_key=prov_config.api_key or "",
+                model=prov_config.model,
+                temperature=config.temperature,
+                max_tokens=config.max_output_tokens,
+                base_url=prov_config.base_url,
+            )
+
         # Default to OpenAI-compatible for others (ollama, openrouter, groq, etc.)
         from agent.llm.openai_compat import OpenAICompatibleProvider
 

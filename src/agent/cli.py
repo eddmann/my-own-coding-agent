@@ -9,7 +9,24 @@ import typer
 from agent.core.config import Config, ThinkingLevel
 from agent.core.message import Message, Role, ThinkingContent, ToolCall
 from agent.core.session import MessageEntry, Session, SessionStateEntry
-from agent.llm.anthropic.oauth import login_flow, logout_flow, status_flow
+from agent.llm.anthropic.oauth import (
+    load_oauth_credentials as load_anthropic_oauth_credentials,
+)
+from agent.llm.anthropic.oauth import (
+    login_flow as anthropic_login_flow,
+)
+from agent.llm.anthropic.oauth import (
+    logout_flow as anthropic_logout_flow,
+)
+from agent.llm.openai_codex.oauth import (
+    load_oauth_credentials as load_openai_codex_oauth_credentials,
+)
+from agent.llm.openai_codex.oauth import (
+    login_flow as openai_codex_login_flow,
+)
+from agent.llm.openai_codex.oauth import (
+    logout_flow as openai_codex_logout_flow,
+)
 
 app = typer.Typer(
     name="agent",
@@ -28,30 +45,52 @@ def main() -> None:
 
 @auth_app.command("login")
 def auth_login(
-    provider: Annotated[str, typer.Argument(help="Provider name (anthropic)")] = "anthropic",
+    provider: Annotated[
+        str,
+        typer.Argument(help="Provider name (anthropic|openai-codex)"),
+    ] = "anthropic",
 ) -> None:
     """Login to an OAuth provider."""
-    if provider != "anthropic":
-        typer.echo("Only anthropic OAuth is supported right now.", err=True)
-        raise typer.Exit(1)
-    login_flow(typer.prompt, typer.echo)
+    if provider == "anthropic":
+        anthropic_login_flow(typer.prompt, typer.echo)
+        return
+    if provider == "openai-codex":
+        openai_codex_login_flow(typer.prompt, typer.echo)
+        return
+    typer.echo("Unsupported provider. Use: anthropic or openai-codex.", err=True)
+    raise typer.Exit(1)
 
 
 @auth_app.command("logout")
 def auth_logout(
-    provider: Annotated[str, typer.Argument(help="Provider name (anthropic)")] = "anthropic",
+    provider: Annotated[
+        str,
+        typer.Argument(help="Provider name (anthropic|openai-codex)"),
+    ] = "anthropic",
 ) -> None:
     """Logout from a provider."""
-    if provider != "anthropic":
-        typer.echo("Only anthropic OAuth is supported right now.", err=True)
-        raise typer.Exit(1)
-    logout_flow(typer.echo)
+    if provider == "anthropic":
+        anthropic_logout_flow(typer.echo)
+        return
+    if provider == "openai-codex":
+        openai_codex_logout_flow(typer.echo)
+        return
+    typer.echo("Unsupported provider. Use: anthropic or openai-codex.", err=True)
+    raise typer.Exit(1)
 
 
 @auth_app.command("status")
 def auth_status() -> None:
     """Show stored credentials."""
-    status_flow(typer.echo)
+    found = False
+    if load_anthropic_oauth_credentials():
+        typer.echo("anthropic: oauth")
+        found = True
+    if load_openai_codex_oauth_credentials():
+        typer.echo("openai-codex: oauth")
+        found = True
+    if not found:
+        typer.echo("No OAuth credentials found")
 
 
 @app.command()

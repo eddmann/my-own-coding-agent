@@ -64,3 +64,25 @@ def test_legacy_max_tokens_maps_to_context_and_output_defaults(temp_dir, monkeyp
 
     assert config.context_max_tokens == 10000
     assert config.max_output_tokens == 8192
+
+
+def test_openai_codex_provider_prefers_oauth_env_and_default_model(monkeypatch):
+    oauth_token = "a.b.c"
+    monkeypatch.setenv("OPENAI_CODEX_OAUTH_TOKEN", oauth_token)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    config = Config(provider="openai-codex", model="gpt-4o")
+    prov = config.get_provider_config()
+
+    assert prov.model == "gpt-5-codex"
+    assert prov.api_key == oauth_token
+
+
+def test_openai_codex_provider_does_not_use_openai_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_CODEX_OAUTH_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-proj-123")
+
+    config = Config(provider="openai-codex", model="gpt-5-codex")
+    prov = config.get_provider_config()
+
+    assert prov.api_key is None

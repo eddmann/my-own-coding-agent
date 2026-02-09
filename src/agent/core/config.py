@@ -299,6 +299,7 @@ class Config:
         def _env_provider_key(provider: str) -> str | None:
             mapping = {
                 "openai": "OPENAI_API_KEY",
+                "openai-codex": "OPENAI_CODEX_OAUTH_TOKEN",
                 "anthropic": "ANTHROPIC_API_KEY",
                 "openrouter": "OPENROUTER_API_KEY",
                 "groq": "GROQ_API_KEY",
@@ -310,6 +311,12 @@ class Config:
 
         def _is_anthropic_key(value: str | None) -> bool:
             return value is not None and value.startswith("sk-ant-")
+
+        def _is_openai_oauth_token(value: str | None) -> bool:
+            if not value:
+                return False
+            parts = value.split(".")
+            return len(parts) == 3 and all(part for part in parts)
 
         def _resolve_api_key(default: str | None, provider: str) -> str | None:
             # Provider-specific environment variable first
@@ -333,17 +340,29 @@ class Config:
                     return default
                 return None
 
+            if provider == "openai-codex":
+                if _is_openai_oauth_token(agent_key):
+                    return agent_key
+                if _is_openai_oauth_token(default):
+                    return default
+                return None
+
             # Fallback for other providers
             if agent_key:
                 return agent_key
             return default
+
+        def _resolve_model(provider: str, fallback_model: str) -> str:
+            if provider in {"anthropic", "openai-codex"} and self.model == "gpt-4o":
+                return fallback_model
+            return self.model
 
         if self.provider in self.providers:
             prov = self.providers[self.provider]
             # Override with top-level settings if specified
             return ProviderConfig(
                 base_url=self.base_url or prov.base_url,
-                model=self.model or prov.model,
+                model=_resolve_model(self.provider, prov.model),
                 api_key=_resolve_api_key(self.api_key or prov.api_key, self.provider),
             )
 
@@ -352,6 +371,11 @@ class Config:
             "openai": ProviderConfig(
                 base_url="https://api.openai.com",
                 model=self.model,
+                api_key=self.api_key,
+            ),
+            "openai-codex": ProviderConfig(
+                base_url="https://chatgpt.com/backend-api",
+                model=self.model if self.model != "gpt-4o" else "gpt-5-codex",
                 api_key=self.api_key,
             ),
             "anthropic": ProviderConfig(
@@ -381,7 +405,7 @@ class Config:
             # Override with top-level settings
             return ProviderConfig(
                 base_url=self.base_url or config.base_url,
-                model=self.model,
+                model=_resolve_model(self.provider, config.model),
                 api_key=_resolve_api_key(self.api_key or config.api_key, self.provider),
             )
 

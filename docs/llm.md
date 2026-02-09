@@ -10,8 +10,13 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
 ## Built‑in providers
 
 - **OpenAI** (`src/agent/llm/openai/`)
-  - Uses the native OpenAI API with reasoning‑effort support
+  - Uses OpenAI API keys for model access
+  - Supports reasoning‑effort controls for supported models
+- **OpenAI Codex** (`src/agent/llm/openai_codex/`)
+  - Uses ChatGPT Codex subscription auth (OAuth)
+  - Calls `chatgpt.com/backend-api/codex/responses`
 - **Anthropic** (`src/agent/llm/anthropic/`)
+  - Uses Anthropic API keys or OAuth credentials
   - Uses Claude’s Messages API with extended thinking signatures
   - Claude Code emulation when using Anthropic OAuth tokens (`sk-ant-oat...`)
 - **OpenAI‑compatible** (`src/agent/llm/openai_compat.py`)

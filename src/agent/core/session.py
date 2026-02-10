@@ -89,13 +89,20 @@ class Session:
 
     __slots__ = ("path", "metadata", "messages", "entries", "_leaf_id", "_entries_by_id")
 
-    def __init__(self, path: Path, metadata: SessionMetadata) -> None:
+    def __init__(
+        self,
+        path: Path,
+        metadata: SessionMetadata,
+        entries: list[SessionEntry] | None = None,
+        leaf_id: str | None = None,
+    ) -> None:
         self.path = path
         self.metadata = metadata
+        self.entries: list[SessionEntry] = list(entries) if entries is not None else []
+        self._entries_by_id: dict[str, SessionEntry] = {entry.id: entry for entry in self.entries}
+        self._leaf_id: str | None = leaf_id
         self.messages: list[Message] = []
-        self.entries: list[SessionEntry] = []
-        self._leaf_id: str | None = None
-        self._entries_by_id: dict[str, SessionEntry] = {}
+        self._rebuild_messages()
 
     @classmethod
     def new(cls, session_dir: Path, provider: str | None = None, model: str | None = None) -> Self:
@@ -113,9 +120,8 @@ class Session:
             model=model,
         )
 
-        session = cls(path, metadata)
-        session._write_header()
-        return session
+        cls._write_header_file(path, metadata)
+        return cls(path, metadata)
 
     @classmethod
     def load(cls, path: Path) -> Self:
@@ -124,27 +130,29 @@ class Session:
             # First line is metadata
             first_line = f.readline()
             metadata = SessionMetadata.model_validate_json(first_line)
-            session = cls(path, metadata)
+            entries: list[SessionEntry] = []
+            entries_by_id: dict[str, SessionEntry] = {}
+            leaf_id: str | None = None
             # Remaining lines are messages
             for line in f:
                 if line.strip():
                     entry = cls._parse_entry(line)
                     if entry is None:
                         continue
-                    session._add_entry(entry)
+                    entries.append(entry)
+                    entries_by_id[entry.id] = entry
                     if isinstance(entry, SessionStateEntry):
                         if entry.leaf_id:
-                            session._leaf_id = entry.leaf_id
+                            leaf_id = entry.leaf_id
                     else:
-                        session._leaf_id = entry.id
-            if session._leaf_id and session._leaf_id not in session._entries_by_id:
+                        leaf_id = entry.id
+            if leaf_id and leaf_id not in entries_by_id:
                 fallback = next(
-                    (e for e in reversed(session.entries) if not isinstance(e, SessionStateEntry)),
+                    (e for e in reversed(entries) if not isinstance(e, SessionStateEntry)),
                     None,
                 )
-                session._leaf_id = fallback.id if fallback else None
-            session._rebuild_messages()
-        return session
+                leaf_id = fallback.id if fallback else None
+        return cls(path, metadata, entries=entries, leaf_id=leaf_id)
 
     @classmethod
     def list_sessions(cls, session_dir: Path, limit: int = 20) -> list[Path]:
@@ -184,7 +192,7 @@ class Session:
             parentSession=self.metadata.id,
         )
         # Rewrite header with parent info
-        new_session._write_header()
+        type(self)._write_header_file(new_session.path, new_session.metadata)
 
         prev_id: str | None = None
         for msg in self.messages[: idx + 1]:
@@ -249,11 +257,16 @@ class Session:
             return provider, model
         return None
 
+    @staticmethod
+    def _write_header_file(path: Path, metadata: SessionMetadata) -> None:
+        """Write only the session metadata header to disk."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            f.write(metadata.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+
     def _write_header(self) -> None:
         """Write session metadata header."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w") as f:
-            f.write(self.metadata.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+        self._write_header_file(self.path, self.metadata)
 
     def _rewrite_file(self) -> None:
         """Rewrite header + all entries."""

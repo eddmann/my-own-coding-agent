@@ -41,6 +41,13 @@ class OpenAIProvider:
         if self.http_client is not None:
             self._shared_client = self.http_client
 
+    def set_model(self, model: str) -> None:
+        """Update model and clear shared model-scoped caches."""
+        if not model or model == self.model:
+            return
+        self.model = model
+        self._encoder = None
+
     def _sync_provider(self, provider: OpenAIChatProvider | OpenAIResponsesProvider) -> None:
         provider.api_key = self.api_key
         provider.model = self.model

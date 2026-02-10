@@ -252,12 +252,8 @@ class Agent:
             return
 
         previous_model = self.provider.model
-        self.provider.model = model
+        self.provider.set_model(model)
         self.config.model = model
-
-        # Reset encoder for providers that cache per-model encoders
-        if hasattr(self.provider, "_encoder"):
-            cast("Any", self.provider)._encoder = None
 
         # Clamp thinking level to model capabilities
         available = get_available_thinking_levels(model, provider=self.config.provider)
@@ -363,11 +359,7 @@ class Agent:
         previous_model = self.config.model
 
         self.config.model = model
-        self.provider.model = model
-
-        # Reset encoder for providers that cache per-model encoders
-        if hasattr(self.provider, "_encoder"):
-            cast("Any", self.provider)._encoder = None
+        self.provider.set_model(model)
 
         # Clamp thinking level to model capabilities
         available = get_available_thinking_levels(model, provider=self.config.provider)

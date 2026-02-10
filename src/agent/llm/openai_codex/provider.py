@@ -195,6 +195,13 @@ class OpenAICodexProvider:
         if self.http_client is not None:
             self._client = self.http_client
 
+    def set_model(self, model: str) -> None:
+        """Update model and clear model-scoped caches."""
+        if not model or model == self.model:
+            return
+        self.model = model
+        self._encoder = None
+
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None:

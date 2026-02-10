@@ -60,6 +60,11 @@ class FakeLLMProvider(LLMProvider):
         self._scripts = list(scripts or [])
         self.stream_calls: list[dict[str, Any]] = []
         self._closed = False
+        self.model = "fake-model"
+
+    def set_model(self, model: str) -> None:
+        if model:
+            self.model = model
 
     def stream(
         self,

@@ -213,6 +213,13 @@ class OpenAIBase:
         """Get capabilities for the current model."""
         return get_model_capabilities(self.model)
 
+    def set_model(self, model: str) -> None:
+        """Update model and clear model-scoped caches."""
+        if not model or model == self.model:
+            return
+        self.model = model
+        self._encoder = None
+
     def count_tokens(self, text: str) -> int:
         """Count tokens using tiktoken."""
         return len(self.encoder.encode(text))

@@ -21,6 +21,10 @@ class LLMProvider(Protocol):
 
     model: str
 
+    def set_model(self, model: str) -> None:
+        """Update the active model and reset any model-scoped caches."""
+        ...
+
     def stream(
         self,
         messages: list[Message],

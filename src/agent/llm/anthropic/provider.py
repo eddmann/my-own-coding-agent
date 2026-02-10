@@ -204,6 +204,12 @@ class AnthropicProvider:
         if self.http_client is not None:
             self._client = self.http_client
 
+    def set_model(self, model: str) -> None:
+        """Update the active model."""
+        if not model or model == self.model:
+            return
+        self.model = model
+
     @property
     def client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""

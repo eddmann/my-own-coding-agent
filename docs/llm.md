@@ -7,6 +7,13 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
 - `supports_thinking()` — capability detection
 - `list_models()` — optional discovery
 
+## Provider bootstrap
+
+- `src/agent/llm/factory.py` is the bootstrap boundary:
+  - `resolve_provider_config(...)` resolves base URL/model/api key from flat inputs + optional provider overrides.
+  - `create_provider(...)` validates provider/model compatibility and returns a concrete provider instance.
+- Delivery (CLI/TUI) constructs providers through the factory and injects them into core `Agent`.
+
 ## Built‑in providers
 
 - **OpenAI** (`src/agent/llm/openai/`)
@@ -21,6 +28,13 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
   - Claude Code emulation when using Anthropic OAuth tokens (`sk-ant-oat...`)
 - **OpenAI‑compatible** (`src/agent/llm/openai_compat.py`)
   - Works with Ollama, OpenRouter, Groq, LM Studio, etc.
+
+## Model validation policy
+
+- Provider/model compatibility is enforced in the LLM module:
+  - factory-time validation in `create_provider(...)`
+  - runtime validation in provider `set_model(...)`
+- Invalid combinations fail with a `ValueError` (for example, Claude model on OpenAI provider).
 
 ## Streaming events
 

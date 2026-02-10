@@ -483,7 +483,7 @@ def _looks_like_opus_46(model_id: str) -> bool:
     return "opus-4-6" in model_id or "opus-4.6" in model_id
 
 
-def model_supports_xhigh(model_id: str) -> bool:
+def _model_supports_xhigh(model_id: str) -> bool:
     """Return model-level xhigh capability without provider policy."""
     normalized_model, _ = _normalize_capability_model_id(model_id)
     if normalized_model in XHIGH_MODELS:
@@ -492,7 +492,7 @@ def model_supports_xhigh(model_id: str) -> bool:
     return bool(info and info.xhigh)
 
 
-def provider_allows_xhigh(model_id: str, provider: str | None = None) -> bool:
+def _provider_allows_xhigh(model_id: str, provider: str | None = None) -> bool:
     """Apply provider/API policy on top of model-level xhigh capability."""
     normalized_model, _ = _normalize_capability_model_id(model_id)
     capability_provider = resolve_capability_provider(provider)
@@ -501,7 +501,7 @@ def provider_allows_xhigh(model_id: str, provider: str | None = None) -> bool:
     if _looks_like_opus_46(normalized_model):
         return capability_provider == "anthropic"
 
-    return model_supports_xhigh(normalized_model)
+    return _model_supports_xhigh(normalized_model)
 
 
 def get_model_info(model_id: str) -> ModelInfo | None:
@@ -575,5 +575,42 @@ def supports_xhigh(model_id: str, provider: str | None = None) -> bool:
         True if model supports xhigh thinking
     """
     if provider is None:
-        return model_supports_xhigh(model_id)
-    return provider_allows_xhigh(model_id, provider)
+        return _model_supports_xhigh(model_id)
+    return _provider_allows_xhigh(model_id, provider)
+
+
+def is_model_valid_for_provider(model_id: str, provider: str) -> bool:
+    """Return whether a model id is valid for a provider family.
+
+    Native providers (`openai`, `openai-codex`, `anthropic`) are validated for
+    clear cross-family mismatches. OpenAI-compatible providers are treated as
+    pass-through and validated at runtime (when model lists are available).
+    """
+    normalized_model, _ = _normalize_capability_model_id(model_id)
+    info = get_model_info(normalized_model)
+
+    if provider == "anthropic":
+        if info is not None:
+            return info.provider == "anthropic"
+        # Clear mismatch: OpenAI-family names on Anthropic provider.
+        return not normalized_model.startswith(("gpt-", "o1", "o3", "o4", "codex"))
+
+    if provider == "openai":
+        if info is not None:
+            return info.provider == "openai"
+        # Clear mismatch: Claude-family names on OpenAI provider.
+        return "claude" not in normalized_model
+
+    if provider == "openai-codex":
+        if info is not None:
+            return info.provider == "openai" and (
+                "codex" in normalized_model or normalized_model.startswith("gpt-5")
+            )
+        # Clear mismatch: Claude-family names on OpenAI Codex provider.
+        if "claude" in normalized_model:
+            return False
+        # Codex provider is GPT-5/Codex-focused; reject explicit GPT-4 family.
+        return not normalized_model.startswith("gpt-4")
+
+    # OpenAI-compatible routes can proxy many upstream model names.
+    return True

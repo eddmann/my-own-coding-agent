@@ -1,5 +1,7 @@
 """Main Textual TUI application."""
 
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,9 +15,9 @@ from textual.theme import Theme
 from textual.widgets import Static
 
 from agent.core.agent import Agent
-from agent.core.config import Config, ThinkingLevel
 from agent.core.message import Message, Role, ThinkingContent, ToolCall, ToolCallStart, ToolResult
 from agent.core.session import MessageEntry, Session
+from agent.core.settings import ThinkingLevel
 from agent.prompts.loader import PromptTemplateLoader
 from agent.skills.loader import SkillLoader
 from agent.tui.chat import ChatView, MessageWidget, ThinkingWidget
@@ -27,6 +29,9 @@ from agent.tui.status import StatusBar
 
 if TYPE_CHECKING:
     from textual.timer import Timer
+
+    from agent.config import Config
+    from agent.llm.provider import LLMProvider
 
 # Startup banner
 BANNER = """
@@ -65,10 +70,16 @@ class AgentApp(App[None]):
 
     is_processing = reactive(False)
 
-    def __init__(self, config: Config, session: Session | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        provider: LLMProvider,
+        session: Session | None = None,
+    ) -> None:
         super().__init__()
-        self.config = config
+        self._bootstrap_config = config
         self._session = session
+        self._provider = provider
         self._agent: Agent | None = None
         self._spinner_timer: Timer | None = None
 
@@ -87,7 +98,8 @@ class AgentApp(App[None]):
         """Get the agent, creating it if needed."""
         if self._agent is None:
             self._agent = Agent(
-                self.config,
+                self._bootstrap_config.to_agent_settings(),
+                self._provider,
                 self._session,
                 skill_loader=self._skill_loader,
                 template_loader=self._template_loader,
@@ -111,7 +123,8 @@ class AgentApp(App[None]):
         """Render the startup banner in chat."""
         chat.mount(
             Static(
-                f"{BANNER}\n\nmy-own-coding-agent | {self.config.model}", classes="message-system"
+                f"{BANNER}\n\nmy-own-coding-agent | {self.agent.provider.model}",
+                classes="message-system",
             )
         )
 
@@ -154,10 +167,10 @@ class AgentApp(App[None]):
         self._render_session_messages(chat, session)
 
         status = self.query_one("#status-line", StatusBar)
-        status.set_model(self.config.model)
-        status.set_thinking(self.config.thinking_level)
+        status.set_model(self.agent.provider.model)
+        status.set_thinking(self.agent.config.thinking_level)
         status.set_session(session.metadata.id, session.metadata.parent_session_id)
-        status.set_tokens(self.agent.total_tokens, self.config.context_max_tokens)
+        status.set_tokens(self.agent.total_tokens, self.agent.config.context_max_tokens)
 
     def _load_session_path(self, path: Path) -> None:
         """Load a session from a specific file path."""
@@ -202,7 +215,7 @@ class AgentApp(App[None]):
         chat = self.query_one("#chat-view", ChatView)
         parent_id = self.agent.session.metadata.id
         try:
-            new_session = self.agent.session.fork(message_id, self.config.session_dir)
+            new_session = self.agent.session.fork(message_id, self.agent.config.session_dir)
         except Exception as exc:
             chat.add_system_message(f"failed to fork session: {exc}")
             return
@@ -273,8 +286,8 @@ class AgentApp(App[None]):
 
         # Update status bar
         status = self.query_one("#status-line", StatusBar)
-        status.set_model(self.config.model)
-        status.set_thinking(self.config.thinking_level)
+        status.set_model(self.agent.provider.model)
+        status.set_thinking(self.agent.config.thinking_level)
         status.set_session(
             self.agent.session.metadata.id, self.agent.session.metadata.parent_session_id
         )
@@ -283,7 +296,7 @@ class AgentApp(App[None]):
         self.query_one("#prompt-input", PromptInput).focus()
 
         # Load extensions if configured
-        if self.config.extensions:
+        if self.agent.config.extensions:
             errors = await self.agent.load_extensions()
             for error in errors:
                 chat.add_system_message(f"extension error: {error}")
@@ -317,7 +330,7 @@ class AgentApp(App[None]):
         if prompt.lower() == "/load":
             self.push_screen(
                 SessionLoadModal(
-                    self.config.session_dir,
+                    self.agent.config.session_dir,
                     on_load=self._load_session_path,
                 )
             )
@@ -330,7 +343,7 @@ class AgentApp(App[None]):
         if prompt.lower() == "/resume":
             self.push_screen(
                 SessionLoadModal(
-                    self.config.session_dir,
+                    self.agent.config.session_dir,
                     on_load=self._load_session_path,
                 )
             )
@@ -382,12 +395,12 @@ class AgentApp(App[None]):
             )
             return
         if prompt.lower() == "/context":
-            self.push_screen(ContextModal(self.agent, self.config))
+            self.push_screen(ContextModal(self.agent))
             return
         if prompt.lower() == "/model":
             self.push_screen(
                 ModelModal(
-                    self.config,
+                    self.agent.config,
                     self.agent.provider,
                     self._on_model_modal_change,
                 )
@@ -406,7 +419,8 @@ class AgentApp(App[None]):
         # Start processing - show thinking indicator if thinking is enabled
         self.is_processing = True
         thinking_enabled = (
-            self.config.thinking_level.value != "off" and self.agent.provider.supports_thinking()
+            self.agent.config.thinking_level.value != "off"
+            and self.agent.provider.supports_thinking()
         )
         chat.start_assistant_message(thinking=thinking_enabled)
 
@@ -500,7 +514,7 @@ class AgentApp(App[None]):
             self._cancel_event = None
             # Update token count in status bar
             status = self.query_one("#status-line", StatusBar)
-            status.set_tokens(self.agent.total_tokens, self.config.context_max_tokens)
+            status.set_tokens(self.agent.total_tokens, self.agent.config.context_max_tokens)
             self.query_one("#prompt-input", PromptInput).focus()
 
     def action_clear(self) -> None:
@@ -521,7 +535,7 @@ class AgentApp(App[None]):
         status.set_session(
             self.agent.session.metadata.id, self.agent.session.metadata.parent_session_id
         )
-        status.set_tokens(self.agent.total_tokens, self.config.context_max_tokens)
+        status.set_tokens(self.agent.total_tokens, self.agent.config.context_max_tokens)
 
     def _switch_model(self, model_name: str) -> None:
         """Switch to a different model."""
@@ -529,11 +543,15 @@ class AgentApp(App[None]):
         status = self.query_one("#status-line", StatusBar)
 
         # Update model via agent (persists metadata + clamps thinking)
-        self.agent.set_model(model_name)
+        try:
+            self.agent.set_model(model_name)
+        except ValueError as err:
+            chat.add_system_message(str(err))
+            return
 
         # Update UI
         status.set_model(model_name)
-        status.set_thinking(self.config.thinking_level)
+        status.set_thinking(self.agent.config.thinking_level)
         chat.add_system_message(f"switched to {model_name}")
 
     def _switch_thinking(self, level_name: str) -> None:
@@ -556,7 +574,7 @@ class AgentApp(App[None]):
             return
 
         # Update config (agent reads this each turn)
-        self.config.thinking_level = level
+        self.agent.config.thinking_level = level
 
         # Update status bar
         status.set_thinking(level)

@@ -215,8 +215,12 @@ class OpenAIBase:
 
     def set_model(self, model: str) -> None:
         """Update model and clear model-scoped caches."""
+        from agent.llm.models import is_model_valid_for_provider
+
         if not model or model == self.model:
             return
+        if not is_model_valid_for_provider(model, "openai"):
+            raise ValueError(f"Model '{model}' is not valid for provider 'openai'")
         self.model = model
         self._encoder = None
 

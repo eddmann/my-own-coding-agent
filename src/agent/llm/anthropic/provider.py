@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 import httpx
 
-from agent.core.config import THINKING_BUDGETS, ThinkingLevel
 from agent.core.message import Message, Role
+from agent.core.settings import THINKING_BUDGETS, ThinkingLevel
 from agent.llm.events import (
     AssistantMetadataEvent,
     Cost,
@@ -194,10 +194,12 @@ class AnthropicProvider:
     """Native Anthropic API provider with full feature support."""
 
     api_key: str
+    name: str = "anthropic"
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 8192
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     oauth_path: Path | None = None
+    retry_config: RetryConfig = field(default_factory=RetryConfig, repr=False)
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -206,8 +208,12 @@ class AnthropicProvider:
 
     def set_model(self, model: str) -> None:
         """Update the active model."""
+        from agent.llm.models import is_model_valid_for_provider
+
         if not model or model == self.model:
             return
+        if not is_model_valid_for_provider(model, self.name):
+            raise ValueError(f"Model '{model}' is not valid for provider '{self.name}'")
         self.model = model
 
     @property
@@ -430,7 +436,6 @@ class AnthropicProvider:
     ) -> None:
         """Internal implementation of streaming with retry and cancellation."""
         output = PartialMessage()
-        retry_config = RetryConfig()
 
         # Track current content blocks
         current_block_type: str | None = None
@@ -697,7 +702,7 @@ class AnthropicProvider:
                             output.stop_reason = _map_stop_reason(delta.get("stop_reason"))
 
         try:
-            await with_retry(_do_stream, retry_config)
+            await with_retry(_do_stream, self.retry_config)
 
             # Skip done event if already aborted
             if stream.is_aborted:

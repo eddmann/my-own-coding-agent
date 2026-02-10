@@ -1,7 +1,6 @@
 """Core agent components."""
 
 from agent.core.agent import Agent
-from agent.core.config import THINKING_BUDGETS, Config, ThinkingLevel
 from agent.core.context import ContextManager
 from agent.core.events import (
     AgentEndEvent,
@@ -23,12 +22,13 @@ from agent.core.events import (
 )
 from agent.core.message import Message, Role, ThinkingContent, ToolCall, ToolResult
 from agent.core.session import Session, SessionMetadata
+from agent.core.settings import THINKING_BUDGETS, AgentSettings, ThinkingLevel
 
 __all__ = [
     # Agent
     "Agent",
-    # Config
-    "Config",
+    # Runtime settings
+    "AgentSettings",
     "ThinkingLevel",
     "THINKING_BUDGETS",
     # Context

@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
     from agent.core.agent import Agent
-    from agent.core.config import Config
 
 
 class ContextModal(ModalScreen[None]):
@@ -24,10 +23,9 @@ class ContextModal(ModalScreen[None]):
         Binding("escape", "close", "Close"),
     ]
 
-    def __init__(self, agent: Agent, config: Config) -> None:
+    def __init__(self, agent: Agent) -> None:
         super().__init__()
         self._agent = agent
-        self._config = config
 
     def compose(self) -> ComposeResult:
         with Container(id="context-modal"):
@@ -57,17 +55,17 @@ class ContextModal(ModalScreen[None]):
 
         # Model section
         lines.append("[bold cyan]MODEL[/]")
-        lines.append(f"  Provider: {self._config.provider}")
-        lines.append(f"  Model: {self._config.model}")
-        lines.append(f"  Thinking: {self._config.thinking_level.value}")
-        lines.append(f"  Temperature: {self._config.temperature}")
-        lines.append(f"  Max Output Tokens: {self._config.max_output_tokens}")
+        lines.append(f"  Provider: {self._agent.provider.name}")
+        lines.append(f"  Model: {self._agent.provider.model}")
+        lines.append(f"  Thinking: {self._agent.config.thinking_level.value}")
+        lines.append(f"  Temperature: {self._agent.config.temperature}")
+        lines.append(f"  Max Output Tokens: {self._agent.config.max_output_tokens}")
         lines.append("")
 
         # Token usage
         lines.append("[bold cyan]TOKEN USAGE[/]")
         current_tokens = self._agent.total_tokens
-        context_max_tokens = self._config.context_max_tokens
+        context_max_tokens = self._agent.config.context_max_tokens
         reserve = self._agent.context.reserve_tokens
         pct = (current_tokens / context_max_tokens * 100) if context_max_tokens > 0 else 0
         available = context_max_tokens - reserve

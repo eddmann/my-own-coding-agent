@@ -229,10 +229,6 @@ class SkillLoader:
         """Get a skill by name."""
         return self.skills.get(name)
 
-    def find(self, name: str) -> Skill | None:
-        """Find a skill by name (alias for get)."""
-        return self.get(name)
-
     def get_context(self, skill_name: str) -> str | None:
         """Get skill README content for injection into system prompt."""
         skill = self.get(skill_name)

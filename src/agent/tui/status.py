@@ -11,7 +11,7 @@ from textual.widgets import Static
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
-    from agent.core.config import ThinkingLevel
+    from agent.core.settings import ThinkingLevel
 
 
 class StatusBar(Horizontal):

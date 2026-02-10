@@ -19,6 +19,7 @@ class LLMProvider(Protocol):
     for capability detection.
     """
 
+    name: str
     model: str
 
     def set_model(self, model: str) -> None:

@@ -12,13 +12,13 @@ import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
 AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -187,7 +187,12 @@ def _parse_code_and_state(value: str) -> tuple[str, str | None]:
     return raw, None
 
 
-async def exchange_openai_codex_code(code: str, verifier: str) -> OAuthCredentials:
+async def exchange_openai_codex_code(
+    code: str,
+    verifier: str,
+    *,
+    client_factory: Callable[..., httpx.AsyncClient] | None = None,
+) -> OAuthCredentials:
     """Exchange authorization code for tokens."""
     payload = {
         "grant_type": "authorization_code",
@@ -196,7 +201,8 @@ async def exchange_openai_codex_code(code: str, verifier: str) -> OAuthCredentia
         "code_verifier": verifier,
         "redirect_uri": REDIRECT_URI,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+    client_factory = client_factory or httpx.AsyncClient
+    async with client_factory(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         response = await client.post(TOKEN_URL, data=payload)
     if response.status_code >= 400:
         raise RuntimeError(f"Token exchange failed: {response.text}")
@@ -204,14 +210,19 @@ async def exchange_openai_codex_code(code: str, verifier: str) -> OAuthCredentia
     return OAuthCredentials.from_token_response(data)
 
 
-async def refresh_openai_codex_token(refresh_token: str) -> OAuthCredentials:
+async def refresh_openai_codex_token(
+    refresh_token: str,
+    *,
+    client_factory: Callable[..., httpx.AsyncClient] | None = None,
+) -> OAuthCredentials:
     """Refresh an OpenAI Codex OAuth token."""
     payload = {
         "grant_type": "refresh_token",
         "client_id": CLIENT_ID,
         "refresh_token": refresh_token,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+    client_factory = client_factory or httpx.AsyncClient
+    async with client_factory(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         response = await client.post(TOKEN_URL, data=payload)
     if response.status_code >= 400:
         raise RuntimeError(f"OpenAI Codex token refresh failed: {response.text}")
@@ -219,9 +230,16 @@ async def refresh_openai_codex_token(refresh_token: str) -> OAuthCredentials:
     return OAuthCredentials.from_token_response(data)
 
 
-def login_flow(prompt: Callable[[str], str], emit: Callable[[str], None]) -> None:
+def login_flow(
+    prompt: Callable[[str], str],
+    emit: Callable[[str], None],
+    *,
+    auth_url_builder: Callable[[], tuple[str, str, str]] = build_openai_codex_auth_url,
+    code_exchanger: Callable[[str, str], Awaitable[OAuthCredentials]] = exchange_openai_codex_code,
+    credentials_saver: Callable[[OAuthCredentials], None] = save_oauth_credentials,
+) -> None:
     """CLI login flow helper."""
-    auth_url, verifier, expected_state = build_openai_codex_auth_url()
+    auth_url, verifier, expected_state = auth_url_builder()
     emit("Open this URL in your browser to authorize:")
     emit(auth_url)
     raw = prompt("Paste the redirect URL (or code#state)")
@@ -230,12 +248,21 @@ def login_flow(prompt: Callable[[str], str], emit: Callable[[str], None]) -> Non
         raise RuntimeError("Missing authorization code")
     if state is not None and state != expected_state:
         raise RuntimeError("State mismatch")
-    creds = asyncio.run(exchange_openai_codex_code(code, verifier))
-    save_oauth_credentials(creds)
+    creds = asyncio.run(
+        cast(
+            "Any",
+            code_exchanger(code, verifier),
+        )
+    )
+    credentials_saver(creds)
     emit("Credentials saved to ~/.agent/openai-codex-oauth.json")
 
 
-def logout_flow(emit: Callable[[str], None]) -> None:
+def logout_flow(
+    emit: Callable[[str], None],
+    *,
+    credentials_clearer: Callable[[], None] = clear_oauth_credentials,
+) -> None:
     """CLI logout flow helper."""
-    clear_oauth_credentials()
+    credentials_clearer()
     emit("Logged out of openai-codex")

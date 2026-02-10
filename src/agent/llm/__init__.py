@@ -26,6 +26,7 @@ from agent.llm.events import (
     ToolChoice,
     Usage,
 )
+from agent.llm.factory import create_provider, resolve_provider_config
 from agent.llm.openai import OpenAIError, OpenAIProvider
 from agent.llm.openai_codex import OpenAICodexProvider
 from agent.llm.openai_compat import LLMError, OpenAICompatibleProvider
@@ -50,6 +51,8 @@ __all__ = [
     "OpenAICodexProvider",
     "OpenAIError",
     "OpenAIProvider",
+    "create_provider",
+    "resolve_provider_config",
     # Event stream
     "AssistantMessageEventStream",
     "EventStream",

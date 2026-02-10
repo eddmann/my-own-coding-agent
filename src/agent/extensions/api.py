@@ -41,8 +41,8 @@ class ExtensionContext:
     def get_config(self) -> dict[str, Any]:
         """Get agent configuration as a dictionary."""
         return {
-            "provider": self._agent.config.provider,
-            "model": self._agent.config.model,
+            "provider": self._agent.provider.name,
+            "model": self._agent.provider.model,
             "context_max_tokens": self._agent.config.context_max_tokens,
             "max_output_tokens": self._agent.config.max_output_tokens,
             "temperature": self._agent.config.temperature,

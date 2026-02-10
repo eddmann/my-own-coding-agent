@@ -10,7 +10,7 @@ from agent.core.prompt_builder import ContextFile
 CONTEXT_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"]
 
 
-def load_context_file(path: Path, source: str = "explicit") -> ContextFile | None:
+def _load_context_file(path: Path, source: str = "explicit") -> ContextFile | None:
     """Load a single context file.
 
     Args:
@@ -30,7 +30,7 @@ def load_context_file(path: Path, source: str = "explicit") -> ContextFile | Non
         return None
 
 
-def load_project_context(cwd: Path | None = None) -> list[ContextFile]:
+def _load_project_context(cwd: Path | None = None) -> list[ContextFile]:
     """Load context files from the current project directory.
 
     Looks for AGENTS.md and CLAUDE.md in cwd.
@@ -46,7 +46,7 @@ def load_project_context(cwd: Path | None = None) -> list[ContextFile]:
 
     for name in CONTEXT_FILE_NAMES:
         path = cwd / name
-        if ctx := load_context_file(path, source="project"):
+        if ctx := _load_context_file(path, source="project"):
             context_files.append(ctx)
 
     return context_files
@@ -70,7 +70,7 @@ def load_ancestor_context(cwd: Path | None = None, stop_at_home: bool = True) ->
     context_files: list[ContextFile] = []
     seen_names: set[str] = set()
 
-    # Start from parent (don't include cwd, use load_project_context for that)
+    # Start from parent (don't include cwd, use _load_project_context for that)
     current = cwd.parent
 
     while current != current.parent:  # Stop at filesystem root
@@ -83,7 +83,7 @@ def load_ancestor_context(cwd: Path | None = None, stop_at_home: bool = True) ->
                 continue
 
             path = current / name
-            if ctx := load_context_file(path, source="ancestor"):
+            if ctx := _load_context_file(path, source="ancestor"):
                 context_files.append(ctx)
                 seen_names.add(name)
 
@@ -92,7 +92,7 @@ def load_ancestor_context(cwd: Path | None = None, stop_at_home: bool = True) ->
     return context_files
 
 
-def load_explicit_context(paths: list[Path]) -> list[ContextFile]:
+def _load_explicit_context(paths: list[Path]) -> list[ContextFile]:
     """Load explicitly specified context files.
 
     Args:
@@ -104,7 +104,7 @@ def load_explicit_context(paths: list[Path]) -> list[ContextFile]:
     context_files: list[ContextFile] = []
 
     for path in paths:
-        if ctx := load_context_file(path, source="explicit"):
+        if ctx := _load_context_file(path, source="explicit"):
             context_files.append(ctx)
 
     return context_files
@@ -133,7 +133,7 @@ def load_all_context(
     context_files: list[ContextFile] = []
 
     # Project context
-    context_files.extend(load_project_context(cwd))
+    context_files.extend(_load_project_context(cwd))
 
     # Ancestor context
     if include_ancestors:
@@ -141,6 +141,6 @@ def load_all_context(
 
     # Explicit paths
     if explicit_paths:
-        context_files.extend(load_explicit_context(explicit_paths))
+        context_files.extend(_load_explicit_context(explicit_paths))
 
     return context_files

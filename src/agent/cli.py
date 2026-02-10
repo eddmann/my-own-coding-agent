@@ -2,13 +2,14 @@
 
 import asyncio
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from agent.core.config import Config, ThinkingLevel
+from agent.config import Config
 from agent.core.message import Message, Role, ThinkingContent, ToolCall
 from agent.core.session import MessageEntry, Session, SessionStateEntry
+from agent.core.settings import ThinkingLevel
 from agent.llm.anthropic.oauth import (
     load_oauth_credentials as load_anthropic_oauth_credentials,
 )
@@ -18,6 +19,7 @@ from agent.llm.anthropic.oauth import (
 from agent.llm.anthropic.oauth import (
     logout_flow as anthropic_logout_flow,
 )
+from agent.llm.factory import create_provider
 from agent.llm.openai_codex.oauth import (
     load_oauth_credentials as load_openai_codex_oauth_credentials,
 )
@@ -27,6 +29,9 @@ from agent.llm.openai_codex.oauth import (
 from agent.llm.openai_codex.oauth import (
     logout_flow as openai_codex_logout_flow,
 )
+
+if TYPE_CHECKING:
+    from agent.llm.provider import LLMProvider
 
 app = typer.Typer(
     name="agent",
@@ -41,6 +46,19 @@ app.add_typer(auth_app, name="auth")
 def main() -> None:
     """Entry point for the CLI."""
     app()
+
+
+def _create_llm_provider(config: Config) -> LLMProvider:
+    """Create the configured LLM provider instance."""
+    return create_provider(
+        provider=config.provider,
+        model=config.model,
+        api_key=config.api_key,
+        base_url=config.base_url,
+        temperature=config.temperature,
+        max_output_tokens=config.max_output_tokens,
+        provider_overrides=config.provider_overrides(),
+    )
 
 
 @auth_app.command("login")
@@ -160,6 +178,8 @@ def run(
         append_system_prompt=config.append_system_prompt,
     )
 
+    llm_provider = _create_llm_provider(config)
+
     # Load or create session
     loaded_session: Session | None = None
     if session:
@@ -182,10 +202,10 @@ def run(
         if not prompt:
             typer.echo("Error: Prompt required in headless mode", err=True)
             raise typer.Exit(1)
-        asyncio.run(run_headless(config, prompt, loaded_session))
+        asyncio.run(_run_headless(config, prompt, loaded_session, llm_provider))
     else:
         # Interactive TUI mode
-        run_tui(config, loaded_session)
+        _run_tui(config, loaded_session, llm_provider)
 
 
 def _resolve_message_id(session: Session, spec: str) -> str | None:
@@ -244,19 +264,28 @@ def _resolve_entry_id(session: Session, spec: str) -> str | None:
     return None
 
 
-def run_tui(config: Config, session: Session | None) -> None:
+def _run_tui(config: Config, session: Session | None, llm_provider: LLMProvider) -> None:
     """Run the interactive TUI."""
     from agent.tui.app import AgentApp
 
-    app = AgentApp(config, session)
+    app = AgentApp(config, provider=llm_provider, session=session)
     app.run()
 
 
-async def run_headless(config: Config, prompt: str, session: Session | None) -> None:
+async def _run_headless(
+    config: Config,
+    prompt: str,
+    session: Session | None,
+    llm_provider: LLMProvider,
+) -> None:
     """Run a single prompt without TUI."""
     from agent.core.agent import Agent
 
-    agent = Agent(config, session)
+    agent = Agent(
+        config.to_agent_settings(),
+        llm_provider,
+        session,
+    )
 
     # Load extensions
     if config.extensions:
@@ -337,7 +366,8 @@ def fork(
     new_session = source_session.fork(message_id, config.session_dir)
     typer.echo(f"Forked session: {new_session.path} (parent: {source_session.metadata.id})")
 
-    run_tui(config, new_session)
+    llm_provider = _create_llm_provider(config)
+    _run_tui(config, new_session, llm_provider)
 
 
 @app.command()
@@ -382,7 +412,8 @@ def tree(
         raise typer.Exit(1) from exc
     typer.echo(f"Set session leaf: {message_id}")
 
-    run_tui(config, target_session)
+    llm_provider = _create_llm_provider(config)
+    _run_tui(config, target_session, llm_provider)
 
 
 @app.command()

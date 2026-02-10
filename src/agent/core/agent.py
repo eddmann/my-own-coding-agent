@@ -7,12 +7,6 @@ import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from agent.core.config import (
-    Config,
-    ThinkingLevel,
-    clamp_thinking_level,
-    get_available_thinking_levels,
-)
 from agent.core.context import ContextManager
 from agent.core.context_loader import load_all_context
 from agent.core.events import (
@@ -42,6 +36,12 @@ from agent.core.message import (
 )
 from agent.core.prompt_builder import ContextFile, SystemPromptOptions, build_system_prompt
 from agent.core.session import Session
+from agent.core.settings import (
+    AgentSettings,
+    ThinkingLevel,
+    clamp_thinking_level,
+    get_available_thinking_levels,
+)
 from agent.extensions.api import ExtensionAPI
 from agent.extensions.loader import ExtensionLoader
 from agent.extensions.runner import ExtensionRunner
@@ -89,7 +89,8 @@ class Agent:
 
     def __init__(
         self,
-        config: Config,
+        config: AgentSettings,
+        provider: LLMProvider,
         session: Session | None = None,
         cwd: Path | None = None,
         skill_loader: SkillLoader | None = None,
@@ -98,7 +99,8 @@ class Agent:
         """Initialize the agent.
 
         Args:
-            config: Agent configuration
+            config: Agent runtime settings
+            provider: Pre-constructed LLM provider (delivery layer concern)
             session: Optional existing session to resume
             cwd: Working directory (defaults to Path.cwd())
             skill_loader: Optional skill loader (created if not provided)
@@ -106,10 +108,12 @@ class Agent:
         """
         self.config = config
         self._cwd = cwd or Path.cwd()
-        self.provider = self._create_provider(config)
+        self.provider = provider
         self.tools = ToolRegistry()
-        self.session = session or Session.new(
-            config.session_dir, provider=config.provider, model=config.model
+        self.session = (
+            session
+            if session is not None
+            else Session.new(config.session_dir, provider=provider.name, model=provider.model)
         )
         self.context = ContextManager(self.provider, config.context_max_tokens)
         self._total_tokens = 0
@@ -151,54 +155,6 @@ class Agent:
         if not self.session.messages:
             self._init_system_prompt()
 
-    def _create_provider(self, config: Config) -> LLMProvider:
-        """Create LLM provider from config."""
-        prov_config = config.get_provider_config()
-
-        # Use Anthropic provider for anthropic provider type
-        if config.provider == "anthropic":
-            from agent.llm.anthropic import AnthropicProvider
-
-            return AnthropicProvider(
-                api_key=prov_config.api_key or "",
-                model=prov_config.model,
-                max_tokens=config.max_output_tokens,
-            )
-
-        # Use native OpenAI provider for openai provider type
-        if config.provider == "openai":
-            from agent.llm.openai import OpenAIProvider
-
-            return OpenAIProvider(
-                api_key=prov_config.api_key or "",
-                model=prov_config.model,
-                temperature=config.temperature,
-                max_tokens=config.max_output_tokens,
-            )
-
-        # Use OpenAI Codex provider for ChatGPT Plus/Pro OAuth-backed Codex API
-        if config.provider == "openai-codex":
-            from agent.llm.openai_codex import OpenAICodexProvider
-
-            return OpenAICodexProvider(
-                api_key=prov_config.api_key or "",
-                model=prov_config.model,
-                temperature=config.temperature,
-                max_tokens=config.max_output_tokens,
-                base_url=prov_config.base_url,
-            )
-
-        # Default to OpenAI-compatible for others (ollama, openrouter, groq, etc.)
-        from agent.llm.openai_compat import OpenAICompatibleProvider
-
-        return OpenAICompatibleProvider(
-            base_url=prov_config.base_url,
-            api_key=prov_config.api_key or "",
-            model=prov_config.model,
-            temperature=config.temperature,
-            max_tokens=config.max_output_tokens,
-        )
-
     def _init_system_prompt(self) -> None:
         """Initialize system prompt with context using the prompt builder."""
         # Load context files (AGENTS.md, CLAUDE.md from project and ancestors)
@@ -234,7 +190,7 @@ class Agent:
     def new_session(self) -> None:
         """Start a fresh session and reinitialize system prompt."""
         self.session = Session.new(
-            self.config.session_dir, provider=self.config.provider, model=self.config.model
+            self.config.session_dir, provider=self.provider.name, model=self.provider.model
         )
         self._total_tokens = 0
         self._init_system_prompt()
@@ -254,20 +210,19 @@ class Agent:
 
         previous_model = self.provider.model
         self.provider.set_model(model)
-        self.config.model = model
 
         # Clamp thinking level to model capabilities
-        available = get_available_thinking_levels(model, provider=self.config.provider)
+        available = get_available_thinking_levels(model, provider=self.provider.name)
         self.config.thinking_level = clamp_thinking_level(self.config.thinking_level, available)
 
         # Persist selection in session entries
-        self.session.append_model_change(self.config.provider, model)
+        self.session.append_model_change(self.provider.name, model)
 
         # Emit model selection event
         self._emit_model_select(
-            provider=self.config.provider,
+            provider=self.provider.name,
             model=model,
-            previous_provider=self.config.provider,
+            previous_provider=self.provider.name,
             previous_model=previous_model,
             source=source,
         )
@@ -359,23 +314,24 @@ class Agent:
         provider, model = selection
         if not model:
             return
-        if provider and provider != self.config.provider:
+        if provider and provider != self.provider.name:
             return
 
-        previous_model = self.config.model
-
-        self.config.model = model
-        self.provider.set_model(model)
+        previous_model = self.provider.model
+        try:
+            self.provider.set_model(model)
+        except ValueError:
+            return
 
         # Clamp thinking level to model capabilities
-        available = get_available_thinking_levels(model, provider=self.config.provider)
+        available = get_available_thinking_levels(model, provider=self.provider.name)
         self.config.thinking_level = clamp_thinking_level(self.config.thinking_level, available)
 
         # Emit model selection event (restore)
         self._emit_model_select(
-            provider=provider or self.config.provider,
+            provider=provider or self.provider.name,
             model=model,
-            previous_provider=self.config.provider,
+            previous_provider=self.provider.name,
             previous_model=previous_model,
             source="restore",
         )
@@ -670,8 +626,8 @@ class Agent:
                     tool_calls=tool_calls if tool_calls else None,
                     thinking=thinking_obj,
                     provider_metadata=provider_metadata or None,
-                    provider=self.config.provider,
-                    model=getattr(self.provider, "model", None),
+                    provider=self.provider.name,
+                    model=self.provider.model,
                 )
 
                 # Save assistant response

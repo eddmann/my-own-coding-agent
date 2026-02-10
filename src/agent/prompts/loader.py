@@ -176,10 +176,6 @@ class PromptTemplateLoader:
         """Get a template by name."""
         return self.templates.get(name)
 
-    def find(self, name: str) -> PromptTemplate | None:
-        """Find a template by name (alias for get)."""
-        return self.get(name)
-
     def list_templates(self) -> list[str]:
         """List all available template names."""
         return list(self.templates.keys())

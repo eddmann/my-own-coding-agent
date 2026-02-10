@@ -9,10 +9,7 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, RadioButton, RadioSet, Select, Static
 
-from agent.core.config import (
-    ThinkingLevel,
-    get_available_thinking_levels,
-)
+from agent.core.settings import ThinkingLevel, get_available_thinking_levels
 from agent.llm.models import get_model_info, resolve_capability_provider, supports_reasoning
 
 if TYPE_CHECKING:
@@ -20,7 +17,7 @@ if TYPE_CHECKING:
 
     from textual.app import ComposeResult
 
-    from agent.core.config import Config
+    from agent.core.settings import AgentSettings
     from agent.llm.provider import LLMProvider
 
 
@@ -33,7 +30,7 @@ class ModelModal(ModalScreen[None]):
 
     def __init__(
         self,
-        config: Config,
+        config: AgentSettings,
         provider: LLMProvider,
         on_change: Callable[[str | None, ThinkingLevel | None], None],
     ) -> None:
@@ -77,7 +74,7 @@ class ModelModal(ModalScreen[None]):
 
     def _build_thinking_radio(self) -> RadioSet:
         """Build thinking level radio set."""
-        provider_hint = resolve_capability_provider(self._config.provider)
+        provider_hint = resolve_capability_provider(self._provider.name)
         available = get_available_thinking_levels(self._provider.model, provider=provider_hint)
 
         buttons = []
@@ -110,12 +107,12 @@ class ModelModal(ModalScreen[None]):
             reasoning_support = "Yes" if model_info.reasoning else "No"
             max_tokens = f"{model_info.max_output_tokens:,}"
         else:
-            provider_hint = resolve_capability_provider(self._config.provider)
+            provider_hint = resolve_capability_provider(self._provider.name)
             reasoning = supports_reasoning(new_model, provider_hint)
             reasoning_support = "Yes" if reasoning else "No"
             max_tokens = "(unknown)"
 
-        lines.append(f"  Provider: {self._config.provider}")
+        lines.append(f"  Provider: {self._provider.name}")
         lines.append(f"  Model: {new_model}")
         lines.append(f"  Thinking: {new_thinking.value}")
         lines.append(f"  Supports Reasoning: {reasoning_support}")
@@ -149,7 +146,7 @@ class ModelModal(ModalScreen[None]):
 
     async def _rebuild_thinking_radio(self, model: str) -> None:
         """Rebuild thinking radio for a new model."""
-        provider_hint = resolve_capability_provider(self._config.provider)
+        provider_hint = resolve_capability_provider(self._provider.name)
         available = get_available_thinking_levels(model, provider=provider_hint)
 
         buttons = []

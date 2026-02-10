@@ -77,7 +77,7 @@ TOOL_GUIDELINES = {
 }
 
 
-def build_tool_section(tool_names: list[str]) -> str:
+def _build_tool_section(tool_names: list[str]) -> str:
     """Build the available tools section.
 
     Args:
@@ -99,7 +99,7 @@ def build_tool_section(tool_names: list[str]) -> str:
     return "\n".join(lines)
 
 
-def build_guidelines_section(tool_names: list[str]) -> str:
+def _build_guidelines_section(tool_names: list[str]) -> str:
     """Build dynamic guidelines based on available tools.
 
     Args:
@@ -122,7 +122,7 @@ def build_guidelines_section(tool_names: list[str]) -> str:
     return "Guidelines:\n" + "\n".join(guidelines)
 
 
-def build_context_section(context_files: list[ContextFile]) -> str:
+def _build_context_section(context_files: list[ContextFile]) -> str:
     """Build the context files section.
 
     Args:
@@ -149,7 +149,7 @@ def build_context_section(context_files: list[ContextFile]) -> str:
     return "\n\n".join(sections)
 
 
-def build_skills_section(skills: list[Skill]) -> str:
+def _build_skills_section(skills: list[Skill]) -> str:
     """Build the skills section as XML.
 
     Args:
@@ -166,7 +166,7 @@ def build_skills_section(skills: list[Skill]) -> str:
     return format_skills_xml(skills)
 
 
-def build_environment_section(cwd: Path | None = None) -> str:
+def _build_environment_section(cwd: Path | None = None) -> str:
     """Build the environment information section.
 
     Args:
@@ -217,27 +217,29 @@ def build_system_prompt(options: SystemPromptOptions | None = None) -> str:
         sections.append(BASE_PROMPT)
 
     # 2. Tool descriptions
-    if options.selected_tools and (tool_section := build_tool_section(options.selected_tools)):
+    if options.selected_tools and (tool_section := _build_tool_section(options.selected_tools)):
         sections.append(tool_section)
 
     # 3. Dynamic guidelines
-    if options.selected_tools and (guidelines := build_guidelines_section(options.selected_tools)):
+    if options.selected_tools and (
+        guidelines := _build_guidelines_section(options.selected_tools)
+    ):
         sections.append(guidelines)
 
     # 4. Context files
-    if options.context_files and (context_section := build_context_section(options.context_files)):
+    if options.context_files and (context_section := _build_context_section(options.context_files)):
         sections.append(context_section)
 
     # 5. Skills (only if read tool is available)
     if (
         options.skills
         and (not options.selected_tools or "read" in options.selected_tools)
-        and (skills_section := build_skills_section(options.skills))
+        and (skills_section := _build_skills_section(options.skills))
     ):
         sections.append(skills_section)
 
     # 6. Environment
-    env_section = build_environment_section(options.cwd)
+    env_section = _build_environment_section(options.cwd)
     sections.append(env_section)
 
     # 7. Appended content

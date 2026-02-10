@@ -27,6 +27,7 @@ class OpenAIProvider:
     """OpenAI provider that routes between chat and responses implementations."""
 
     api_key: str
+    name: str = "openai"
     model: str = "gpt-4o"
     temperature: float = 0.7
     max_tokens: int = 4096
@@ -36,8 +37,12 @@ class OpenAIProvider:
 
     def set_model(self, model: str) -> None:
         """Update model and clear model-scoped caches in active adapters."""
+        from agent.llm.models import is_model_valid_for_provider
+
         if not model or model == self.model:
             return
+        if not is_model_valid_for_provider(model, self.name):
+            raise ValueError(f"Model '{model}' is not valid for provider '{self.name}'")
         self.model = model
         if self._chat is not None:
             self._chat.set_model(model)

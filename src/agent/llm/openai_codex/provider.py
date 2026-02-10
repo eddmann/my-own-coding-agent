@@ -46,9 +46,11 @@ from .oauth import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from pathlib import Path
 
     from agent.core.message import Message
+    from agent.llm.openai_codex.oauth import OAuthCredentials
 
 OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 OPENAI_CODEX_RESPONSES_PATH = "/codex/responses"
@@ -182,10 +184,16 @@ class OpenAICodexProvider:
     """OpenAI Codex provider with OAuth token refresh support."""
 
     api_key: str
+    name: str = "openai-codex"
     model: str = "gpt-5-codex"
     temperature: float = 0.7
     max_tokens: int = 8192
     base_url: str = OPENAI_CODEX_BASE_URL
+    retry_config: RetryConfig = field(default_factory=RetryConfig, repr=False)
+    refresh_token_fn: Callable[[str], Awaitable[OAuthCredentials]] = field(
+        default=refresh_openai_codex_token,
+        repr=False,
+    )
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     oauth_path: Path | None = None
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
@@ -197,8 +205,12 @@ class OpenAICodexProvider:
 
     def set_model(self, model: str) -> None:
         """Update model and clear model-scoped caches."""
+        from agent.llm.models import is_model_valid_for_provider
+
         if not model or model == self.model:
             return
+        if not is_model_valid_for_provider(model, self.name):
+            raise ValueError(f"Model '{model}' is not valid for provider '{self.name}'")
         self.model = model
         self._encoder = None
 
@@ -490,7 +502,7 @@ class OpenAICodexProvider:
         if creds:
             if _is_expired(creds.expires):
                 try:
-                    creds = await refresh_openai_codex_token(creds.refresh)
+                    creds = await self.refresh_token_fn(creds.refresh)
                     save_oauth_credentials(creds, self.oauth_path)
                 except Exception as exc:
                     raise OpenAICodexError(
@@ -519,7 +531,6 @@ class OpenAICodexProvider:
         stream: AssistantMessageEventStream,
     ) -> None:
         output = PartialMessage()
-        retry_config = RetryConfig()
         current_item: dict[str, Any] | None = None
         current_block: TextBlock | ThinkingBlock | ToolCallBlock | None = None
 
@@ -825,7 +836,7 @@ class OpenAICodexProvider:
 
         try:
             resolved_key, account_id = await self._resolve_credentials()
-            await with_retry(_do_stream, retry_config)
+            await with_retry(_do_stream, self.retry_config)
 
             if stream.is_aborted:
                 return

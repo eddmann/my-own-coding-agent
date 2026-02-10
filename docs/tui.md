@@ -18,9 +18,12 @@ The interactive terminal UI is built with Textual (`src/agent/tui/*`).
 - `/fork` — fork from a message
 - `/tree` — move session leaf (tree view; linear list when no branches)
 - `/context` — show context files
-- `/model` — change model
+- `/model` — open model/thinking modal
+- `/model <name>` — switch model directly
 - `/help` — quick help
 - `/quit` — exit
+
+Model switching is routed through `Agent.set_model(...)` and provider `set_model(...)`. Invalid provider/model pairs are rejected and shown as a system message.
 
 ## Keybindings
 

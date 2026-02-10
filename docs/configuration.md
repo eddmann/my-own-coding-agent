@@ -7,6 +7,12 @@ Configuration is layered and merged in this order (lowest → highest):
 3) Project config (`.agent/config.toml` or `.yaml`)
 4) Environment variables (`AGENT_*`)
 
+## Runtime split
+
+- `Config` (`src/agent/config/runtime.py`) is a delivery/bootstrap concern.
+- Core runtime uses `AgentSettings` (`src/agent/core/settings.py`), projected from config via `Config.to_agent_settings()`.
+- Provider construction and provider/model resolution are handled in `src/agent/llm/factory.py`, not in core.
+
 ## Common settings
 
 - `provider`, `model`, `api_key`, `base_url`

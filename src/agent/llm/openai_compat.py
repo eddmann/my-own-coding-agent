@@ -124,8 +124,10 @@ class OpenAICompatibleProvider:
     base_url: str
     api_key: str
     model: str
+    name: str = "openai-compat"
     temperature: float = 0.7
     max_tokens: int = 4096
+    retry_config: RetryConfig = field(default_factory=RetryConfig, repr=False)
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
     _encoder: tiktoken.Encoding | None = field(default=None, repr=False)
@@ -169,8 +171,12 @@ class OpenAICompatibleProvider:
 
     def set_model(self, model: str) -> None:
         """Update model and clear model-scoped caches."""
+        from agent.llm.models import is_model_valid_for_provider
+
         if not model or model == self.model:
             return
+        if not is_model_valid_for_provider(model, self.name):
+            raise ValueError(f"Model '{model}' is not valid for provider '{self.name}'")
         self.model = model
         self._encoder = None
 
@@ -252,7 +258,6 @@ class OpenAICompatibleProvider:
     ) -> None:
         """Internal implementation of streaming with retry and cancellation."""
         output = PartialMessage()
-        retry_config = RetryConfig()
 
         # Track state
         text_started = False
@@ -404,7 +409,7 @@ class OpenAICompatibleProvider:
                                     )
 
         try:
-            await with_retry(_do_stream, retry_config)
+            await with_retry(_do_stream, self.retry_config)
 
             # Skip done event if already aborted
             if stream.is_aborted:

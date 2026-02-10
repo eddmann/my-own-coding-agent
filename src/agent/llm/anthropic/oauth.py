@@ -12,13 +12,13 @@ import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
 import httpx
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
 AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
 TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
@@ -127,7 +127,12 @@ def _parse_code_state(value: str) -> tuple[str, str]:
     return code, state
 
 
-async def exchange_anthropic_code(code_state: str, verifier: str) -> OAuthCredentials:
+async def exchange_anthropic_code(
+    code_state: str,
+    verifier: str,
+    *,
+    client_factory: Callable[..., httpx.AsyncClient] | None = None,
+) -> OAuthCredentials:
     """Exchange authorization code for tokens."""
     code, state = _parse_code_state(code_state)
     payload = {
@@ -138,7 +143,8 @@ async def exchange_anthropic_code(code_state: str, verifier: str) -> OAuthCreden
         "redirect_uri": REDIRECT_URI,
         "code_verifier": verifier,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+    client_factory = client_factory or httpx.AsyncClient
+    async with client_factory(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         response = await client.post(TOKEN_URL, json=payload)
     if response.status_code >= 400:
         raise RuntimeError(f"Token exchange failed: {response.text}")
@@ -146,14 +152,19 @@ async def exchange_anthropic_code(code_state: str, verifier: str) -> OAuthCreden
     return OAuthCredentials.from_token_response(data)
 
 
-async def refresh_anthropic_token(refresh_token: str) -> OAuthCredentials:
+async def refresh_anthropic_token(
+    refresh_token: str,
+    *,
+    client_factory: Callable[..., httpx.AsyncClient] | None = None,
+) -> OAuthCredentials:
     """Refresh an Anthropic OAuth token."""
     payload = {
         "grant_type": "refresh_token",
         "client_id": _client_id(),
         "refresh_token": refresh_token,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+    client_factory = client_factory or httpx.AsyncClient
+    async with client_factory(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         response = await client.post(TOKEN_URL, json=payload)
     if response.status_code >= 400:
         raise RuntimeError(f"Anthropic token refresh failed: {response.text}")
@@ -161,26 +172,46 @@ async def refresh_anthropic_token(refresh_token: str) -> OAuthCredentials:
     return OAuthCredentials.from_token_response(data)
 
 
-def login_flow(prompt: Callable[[str], str], emit: Callable[[str], None]) -> None:
+def login_flow(
+    prompt: Callable[[str], str],
+    emit: Callable[[str], None],
+    *,
+    auth_url_builder: Callable[[], tuple[str, str]] = build_anthropic_auth_url,
+    code_exchanger: Callable[[str, str], Awaitable[OAuthCredentials]] = exchange_anthropic_code,
+    credentials_saver: Callable[[OAuthCredentials], None] = save_oauth_credentials,
+) -> None:
     """CLI login flow helper."""
-    auth_url, verifier = build_anthropic_auth_url()
+    auth_url, verifier = auth_url_builder()
     emit("Open this URL in your browser to authorize:")
     emit(auth_url)
     code_state = prompt("Paste the authorization code (code#state)")
-    creds = asyncio.run(exchange_anthropic_code(code_state, verifier))
-    save_oauth_credentials(creds)
+    creds = asyncio.run(
+        cast(
+            "Any",
+            code_exchanger(code_state, verifier),
+        )
+    )
+    credentials_saver(creds)
     emit("Credentials saved to ~/.agent/anthropic-oauth.json")
 
 
-def logout_flow(emit: Callable[[str], None]) -> None:
+def logout_flow(
+    emit: Callable[[str], None],
+    *,
+    credentials_clearer: Callable[[], None] = clear_oauth_credentials,
+) -> None:
     """CLI logout flow helper."""
-    clear_oauth_credentials()
+    credentials_clearer()
     emit("Logged out of anthropic")
 
 
-def status_flow(emit: Callable[[str], None]) -> None:
+def status_flow(
+    emit: Callable[[str], None],
+    *,
+    credentials_loader: Callable[[], OAuthCredentials | None] = load_oauth_credentials,
+) -> None:
     """CLI status flow helper."""
-    creds = load_oauth_credentials()
+    creds = credentials_loader()
     if not creds:
         emit("No OAuth credentials found")
         return

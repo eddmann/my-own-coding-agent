@@ -68,6 +68,10 @@ class MessageWidget(Static):
         self._content = content
         self._update_content()
 
+    def text_content(self) -> str:
+        """Return the current plain text content."""
+        return self._content
+
     def _update_content(self) -> None:
         if self.role == "user":
             # Use Text to avoid markup parsing issues with user input
@@ -135,6 +139,10 @@ class ToolWidget(Static):
         self._result = result
         result_display = truncate(result, MAX_DISPLAY_CHARS)
         self.update(Text(result_display))
+
+    def has_result(self) -> bool:
+        """Whether the tool has completed and produced output."""
+        return bool(self._result)
 
     def collapse_output(self) -> None:
         """Collapse the tool output to show only the title."""
@@ -221,6 +229,10 @@ class ThinkingWidget(Static):
         """Append text to thinking content."""
         self._content += text
         self._update_display()
+
+    def text_content(self) -> str:
+        """Return the current plain text content."""
+        return self._content
 
     def _update_display(self) -> None:
         """Update the display with current content."""
@@ -318,7 +330,7 @@ class ChatView(ScrollableContainer):
             self._waiting_indicator.advance()
         # Advance spinner on all incomplete tools
         for widget in self._tool_widgets.values():
-            if not widget._result:
+            if not widget.has_result():
                 widget.advance_spinner()
 
     def start_assistant_message(self, thinking: bool = False) -> None:
@@ -387,7 +399,7 @@ class ChatView(ScrollableContainer):
     def collapse_previous_tools(self) -> None:
         """Collapse all completed tool widgets."""
         for child in self.children:
-            if isinstance(child, ToolWidget) and child._result:
+            if isinstance(child, ToolWidget) and child.has_result():
                 child.collapse_output()
 
     async def start_thinking(self) -> None:

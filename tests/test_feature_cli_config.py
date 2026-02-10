@@ -21,12 +21,12 @@ def write_extension(path: Path) -> None:
 
             def setup(api: ExtensionAPI):
                 def dump(args, ctx):
-                    cfg = ctx._agent.config
+                    cfg = ctx.get_config()
                     return "|".join([
-                        str(cfg.prompt_template_dirs),
-                        str(cfg.context_file_paths),
-                        str(cfg.custom_system_prompt),
-                        str(cfg.append_system_prompt),
+                        str(cfg["prompt_template_dirs"]),
+                        str(cfg["context_file_paths"]),
+                        str(cfg["custom_system_prompt"]),
+                        str(cfg["append_system_prompt"]),
                     ])
                 api.register_command("dump-config", dump)
             """

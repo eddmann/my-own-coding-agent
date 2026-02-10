@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -277,6 +278,11 @@ class Agent:
         return self._total_tokens
 
     @property
+    def is_processing(self) -> bool:
+        """Whether the agent is currently inside the run/tool loop."""
+        return self._in_loop
+
+    @property
     def context_files(self) -> list[ContextFile]:
         """Get loaded context files (AGENTS.md, CLAUDE.md, etc.)."""
         return self._context_files
@@ -309,7 +315,7 @@ class Agent:
             try:
                 result = listener(event)
                 # Handle async listeners
-                if hasattr(result, "__await__"):
+                if inspect.isawaitable(result):
                     await result
             except Exception:
                 pass  # Don't let listener errors break the agent
@@ -624,7 +630,7 @@ class Agent:
                             yield tc
 
                         case "assistant_metadata":
-                            if hasattr(event, "metadata") and isinstance(event.metadata, dict):
+                            if isinstance(event.metadata, dict):
                                 for key, value in event.metadata.items():
                                     if isinstance(value, dict) and isinstance(
                                         provider_metadata.get(key), dict

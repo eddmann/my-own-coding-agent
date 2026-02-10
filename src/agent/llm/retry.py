@@ -116,8 +116,9 @@ def _is_retriable(e: Exception) -> bool:
         return True
 
     # Check for retriable status codes in our custom errors
-    if hasattr(e, "status_code") and e.status_code is not None:
-        return e.status_code in RETRIABLE_STATUS_CODES
+    status_code = getattr(e, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code in RETRIABLE_STATUS_CODES
 
     return False
 
@@ -134,8 +135,9 @@ def _get_retry_delay(e: Exception, base_delay: float, config: RetryConfig) -> fl
         Seconds to wait before retry
     """
     # Check for Retry-After from rate limit
-    if hasattr(e, "response") and e.response is not None:
-        retry_after = parse_retry_after(e.response)
+    response = getattr(e, "response", None)
+    if isinstance(response, httpx.Response):
+        retry_after = parse_retry_after(response)
         if retry_after:
             return retry_after
 

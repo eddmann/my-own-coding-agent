@@ -415,7 +415,9 @@ class AnthropicProvider:
         """
         stream = AssistantMessageEventStream()
         api_key = options.api_key if options and options.api_key else self.api_key
-        asyncio.create_task(self._stream_impl(messages, tools, options, stream, api_key))
+        stream.attach_task(
+            asyncio.create_task(self._stream_impl(messages, tools, options, stream, api_key))
+        )
         return stream
 
     async def _stream_impl(
@@ -617,7 +619,7 @@ class AnthropicProvider:
                         elif delta_type == "input_json_delta":
                             partial_json = delta.get("partial_json", "")
                             if partial_json and current_tool:
-                                current_tool._partial_json += partial_json
+                                current_tool.append_arguments_delta(partial_json)
                                 stream.push(
                                     ToolCallDeltaEvent(
                                         content_index=current_block_index,
@@ -663,11 +665,8 @@ class AnthropicProvider:
                         elif current_block_type == "tool_use" and current_tool:
                             # Parse accumulated JSON
                             try:
-                                args = (
-                                    json.loads(current_tool._partial_json)
-                                    if current_tool._partial_json
-                                    else {}
-                                )
+                                raw_args = current_tool.arguments_raw_json
+                                args = json.loads(raw_args) if raw_args else {}
                             except json.JSONDecodeError:
                                 args = {}
 

@@ -112,7 +112,7 @@ class OpenAIChatProvider(OpenAIBase):
     ) -> AssistantMessageEventStream:
         """Stream completion as events."""
         stream = AssistantMessageEventStream()
-        asyncio.create_task(self._stream_impl(messages, tools, options, stream))
+        stream.attach_task(asyncio.create_task(self._stream_impl(messages, tools, options, stream)))
         return stream
 
     async def _stream_impl(
@@ -297,9 +297,8 @@ class OpenAIChatProvider(OpenAIBase):
                                 if func.get("name"):
                                     tool_block.name = func["name"]
                                 if func.get("arguments"):
-                                    tool_block._partial_json += func["arguments"]
                                     tool_block.arguments = parse_streaming_json(
-                                        tool_block._partial_json
+                                        tool_block.append_arguments_delta(func["arguments"])
                                     )
                                     stream.push(
                                         ToolCallDeltaEvent(
@@ -336,7 +335,8 @@ class OpenAIChatProvider(OpenAIBase):
             for idx in sorted(pending_tool_calls.keys()):
                 tool_block = pending_tool_calls[idx]
                 try:
-                    args = json.loads(tool_block._partial_json) if tool_block._partial_json else {}
+                    raw_args = tool_block.arguments_raw_json
+                    args = json.loads(raw_args) if raw_args else {}
                 except json.JSONDecodeError:
                     args = {}
                 tool_block.arguments = args

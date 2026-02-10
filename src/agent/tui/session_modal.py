@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from textual.app import ComposeResult
-    from textual.widgets._tree import TreeNode
 
 
 @dataclass(slots=True)
@@ -252,7 +251,7 @@ class SessionTreeModal(ModalScreen[None]):
         self._on_select = on_select
         self._limit = limit
         self._selected_id: str | None = self._default_leaf_id()
-        self._tree_nodes: dict[str, TreeNode[str]] = {}
+        self._tree_nodes: dict[str, Any] = {}
         self._tree: Tree[str] | None = None
         self._linear_ids: list[str] = []
         self._is_linear = self._is_linear_session()
@@ -378,7 +377,7 @@ class SessionTreeModal(ModalScreen[None]):
         for entry in entries:
             children.setdefault(entry.parent_id, []).append(entry)
 
-        def add_children(parent_node: TreeNode[str], parent_id: str | None) -> None:
+        def add_children(parent_node: Any, parent_id: str | None) -> None:
             for entry in children.get(parent_id, []):
                 label = self._format_entry(entry)
                 node = parent_node.add(label, data=entry.id)

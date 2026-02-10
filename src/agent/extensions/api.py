@@ -23,8 +23,7 @@ class ExtensionContext:
 
     def is_idle(self) -> bool:
         """Check if the agent is idle (not processing)."""
-        # Check if we're in an agent loop
-        return not hasattr(self._agent, "_in_loop") or not self._agent._in_loop
+        return not self._agent.is_processing
 
     def abort(self) -> None:
         """Request the agent to abort the current operation."""
@@ -47,6 +46,14 @@ class ExtensionContext:
             "context_max_tokens": self._agent.config.context_max_tokens,
             "max_output_tokens": self._agent.config.max_output_tokens,
             "temperature": self._agent.config.temperature,
+            "thinking_level": self._agent.config.thinking_level.value,
+            "session_dir": self._agent.config.session_dir,
+            "skills_dirs": list(self._agent.config.skills_dirs),
+            "extensions": list(self._agent.config.extensions),
+            "prompt_template_dirs": list(self._agent.config.prompt_template_dirs),
+            "context_file_paths": list(self._agent.config.context_file_paths),
+            "custom_system_prompt": self._agent.config.custom_system_prompt,
+            "append_system_prompt": self._agent.config.append_system_prompt,
         }
 
 

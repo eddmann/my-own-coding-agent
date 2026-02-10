@@ -135,6 +135,10 @@ class AssistantMessageEventStream(EventStream[StreamEvent, PartialMessage]):
         self._aborted = False
         self._task: asyncio.Task[None] | None = None  # Holds reference to streaming task
 
+    def attach_task(self, task: asyncio.Task[None]) -> None:
+        """Attach the producer task to keep a strong reference."""
+        self._task = task
+
     def abort(self, reason: str = "aborted") -> None:
         """Abort the stream early.
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from rich.console import Console
 
 from agent.core.config import Config
 from agent.core.message import Message, ThinkingContent, ToolCall
@@ -48,15 +47,4 @@ async def test_tui_rehydrates_tool_and_thinking_widgets(temp_dir):
         assert tool_widgets
         assert thinking_widgets
 
-        def render_text(widget) -> str:
-            # Note: uses RichVisual internals because Textual doesn't expose public text access.
-            renderable = widget.render()
-            if hasattr(renderable, "_renderable"):
-                renderable = renderable._renderable
-            if hasattr(renderable, "markup"):
-                return renderable.markup
-            console = Console(record=True, width=120)
-            console.print(renderable)
-            return console.export_text()
-
-        assert any("Here you go" in render_text(w) for w in assistant_widgets)
+        assert any("Here you go" in w.text_content() for w in assistant_widgets)

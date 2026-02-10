@@ -91,7 +91,7 @@ class FakeLLMProvider(LLMProvider):
                 stream.push(DoneEvent(message=PartialMessage()))
             stream.end()
 
-        stream._task = asyncio.create_task(_run(events))
+        stream.attach_task(asyncio.create_task(_run(events)))
         return stream
 
     def count_tokens(self, text: str) -> int:

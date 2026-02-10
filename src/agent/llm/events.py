@@ -93,6 +93,21 @@ class ToolCallBlock:
     arguments: dict[str, Any] = field(default_factory=dict)
     _partial_json: str = ""
 
+    @property
+    def arguments_raw_json(self) -> str:
+        """Return the raw in-progress JSON string for tool call arguments."""
+        return self._partial_json
+
+    def append_arguments_delta(self, delta: str) -> str:
+        """Append an arguments delta and return the updated raw JSON string."""
+        self._partial_json += delta
+        return self._partial_json
+
+    def set_arguments_raw_json(self, raw_json: str) -> str:
+        """Replace the raw JSON buffer and return the updated value."""
+        self._partial_json = raw_json
+        return self._partial_json
+
 
 ContentBlock = TextBlock | ThinkingBlock | ToolCallBlock
 

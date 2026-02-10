@@ -262,7 +262,7 @@ class OpenAICodexProvider:
         msg_index = 0
 
         for msg in messages:
-            role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+            role = msg.role.value
 
             if role == "system":
                 role = "developer" if caps.is_reasoning else "system"
@@ -451,7 +451,7 @@ class OpenAICodexProvider:
         api_messages: list[Message] = []
 
         for msg in messages:
-            role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+            role = msg.role.value
             if role == "system":
                 if msg.content:
                     instructions_parts.append(msg.content)
@@ -508,8 +508,7 @@ class OpenAICodexProvider:
         options: StreamOptions | None = None,
     ) -> AssistantMessageEventStream:
         stream = AssistantMessageEventStream()
-        task = asyncio.create_task(self._stream_impl(messages, tools, options, stream))
-        stream._task = task  # noqa: SLF001 - needed for compatibility with cancellation flow
+        stream.attach_task(asyncio.create_task(self._stream_impl(messages, tools, options, stream)))
         return stream
 
     async def _stream_impl(
@@ -603,13 +602,14 @@ class OpenAICodexProvider:
                             if item_id:
                                 item_id = _normalize_fc_id(str(item_id))
                             tool_id = f"{call_id}|{item_id}" if item_id else call_id
-                            current_block = ToolCallBlock(
+                            tool_block = ToolCallBlock(
                                 id=tool_id,
                                 name=item.get("name", ""),
                                 arguments={},
-                                _partial_json=item.get("arguments", "") or "",
                             )
-                            output.content.append(current_block)
+                            tool_block.set_arguments_raw_json(item.get("arguments", "") or "")
+                            current_block = tool_block
+                            output.content.append(tool_block)
                             stream.push(
                                 ToolCallStartEvent(
                                     content_index=_content_index(),
@@ -692,9 +692,8 @@ class OpenAICodexProvider:
                             and isinstance(current_block, ToolCallBlock)
                         ):
                             delta = event.get("delta", "")
-                            current_block._partial_json += delta
                             current_block.arguments = _parse_streaming_json(
-                                current_block._partial_json
+                                current_block.append_arguments_delta(delta)
                             )
                             stream.push(
                                 ToolCallDeltaEvent(
@@ -710,9 +709,8 @@ class OpenAICodexProvider:
                             and current_item.get("type") == "function_call"
                             and isinstance(current_block, ToolCallBlock)
                         ):
-                            current_block._partial_json = event.get("arguments", "")
                             current_block.arguments = _parse_streaming_json(
-                                current_block._partial_json
+                                current_block.set_arguments_raw_json(event.get("arguments", ""))
                             )
 
                     elif event_type == "response.output_item.done":
@@ -775,7 +773,9 @@ class OpenAICodexProvider:
                             current_item = None
                         elif item.get("type") == "function_call":
                             if isinstance(current_block, ToolCallBlock):
-                                args_str = current_block._partial_json or item.get("arguments", "")
+                                args_str = current_block.arguments_raw_json or item.get(
+                                    "arguments", ""
+                                )
                                 try:
                                     args = json.loads(args_str) if args_str else {}
                                 except json.JSONDecodeError:

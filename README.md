@@ -18,7 +18,7 @@ This is also a unique project in that it is self‑bootstrapped: I built the ini
 
 ## What it provides
 
-- Provider‑agnostic LLM support (OpenAI native, Anthropic native, and OpenAI‑compatible APIs)
+- Provider‑agnostic LLM support ([OpenAI](docs/llm.md#openai), [Anthropic](docs/llm.md#anthropic), and OpenAI‑compatible APIs like [OpenRouter](docs/llm.md#openrouter) and [Ollama](docs/llm.md#ollama))
 - Streaming text + tool calls + thinking blocks
 - Session persistence (JSONL) with forking and resuming
 - Context compaction to stay inside token limits
@@ -47,6 +47,7 @@ This is also a unique project in that it is self‑bootstrapped: I built the ini
 ```
 core/        Agent loop, sessions, context compaction, prompts
 llm/         Provider adapters + streaming events
+config/      Runtime config loading
 tools/       Built‑in tool registry + implementations
 skills/      Skill discovery + validation
 prompts/     Prompt templates + argument expansion

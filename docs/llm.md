@@ -16,22 +16,41 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
 
 ## Built‑in providers
 
-- **OpenAI** (`src/agent/llm/openai/`)
-  - Uses OpenAI API keys for model access
-  - Supports reasoning‑effort controls for supported models
-- **OpenAI Codex** (`src/agent/llm/openai_codex/`)
-  - Uses ChatGPT Codex subscription auth (OAuth)
-  - Calls `chatgpt.com/backend-api/codex/responses`
-- **Anthropic** (`src/agent/llm/anthropic/`)
-  - Uses Anthropic API keys or OAuth credentials
-  - Uses Claude’s Messages API with extended thinking signatures
-  - Claude Code emulation when using Anthropic OAuth tokens (`sk-ant-oat...`)
-- **OpenAI‑compatible** (`src/agent/llm/openai_compat.py`)
-  - Works with Ollama, OpenRouter, Groq, LM Studio, etc.
-  - Requires an explicit `model` for compatible providers unless configured via provider override.
-  - OpenRouter is available via `provider=openrouter` and accepts OpenRouter model IDs such as `openrouter/free` or `meta-llama/llama-3.3-70b-instruct:free`.
-  - OpenRouter defaults to `https://openrouter.ai/api`; request paths are appended by the OpenAI-compatible transport.
-  - Ollama is available via `provider=ollama` with local base URL default `http://localhost:11434`.
+### OpenAI
+
+- Implementation: `src/agent/llm/openai/`
+- Uses OpenAI API keys for model access
+- Supports reasoning‑effort controls for supported models
+
+### OpenAI Codex
+
+- Implementation: `src/agent/llm/openai_codex/`
+- Uses ChatGPT Codex subscription auth (OAuth)
+- Calls `chatgpt.com/backend-api/codex/responses`
+
+### Anthropic
+
+- Implementation: `src/agent/llm/anthropic/`
+- Uses Anthropic API keys or OAuth credentials
+- Uses Claude’s Messages API with extended thinking signatures
+- Claude Code emulation when using Anthropic OAuth tokens (`sk-ant-oat...`)
+
+### OpenAI‑compatible
+
+- Implementation: `src/agent/llm/openai_compat.py`
+- Works with Ollama, OpenRouter, Groq, LM Studio, etc.
+- Requires an explicit `model` for compatible providers unless configured via provider override.
+
+#### OpenRouter
+
+- Available via `provider=openrouter`
+- Accepts OpenRouter model IDs such as `openrouter/free` or `meta-llama/llama-3.3-70b-instruct:free`
+- Defaults to `https://openrouter.ai/api`; request paths are appended by the OpenAI-compatible transport
+
+#### Ollama
+
+- Available via `provider=ollama`
+- Uses local base URL default `http://localhost:11434`
 
 ## Model validation policy
 

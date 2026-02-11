@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from pydantic import BaseModel
 
 from agent.config import Config
 from agent.core.agent import Agent
-from agent.core.message import Message, ToolResult
 from agent.llm.events import (
     AssistantMetadataEvent,
     DoneEvent,
@@ -20,6 +20,7 @@ from agent.llm.events import (
     ThinkingEndEvent,
     ThinkingStartEvent,
 )
+from agent.tools import BaseTool
 from tests.test_doubles.llm_provider_fake import LLMProviderFake
 from tests.test_doubles.llm_stream_builders import (
     make_error_events,
@@ -57,7 +58,8 @@ async def test_agent_streams_text_and_persists_message(temp_dir):
     async for chunk in agent.run("Hi"):
         chunks.append(chunk)
 
-    assert "Hello world" in "".join(c for c in chunks if isinstance(c, str))
+    text = "".join(c.payload for c in chunks if c.type == "text_delta")
+    assert "Hello world" in text
     assert len(fake.stream_calls) == 1
     assert agent.session.messages[0].role.value == "system"
     assert agent.session.messages[1].content == "Hi"
@@ -79,13 +81,50 @@ async def test_agent_runs_tool_call_then_continues(temp_dir):
     async for chunk in agent.run("Read the file"):
         chunks.append(chunk)
 
-    tool_results = [c for c in chunks if isinstance(c, ToolResult)]
+    tool_results = [c.payload for c in chunks if c.type == "tool_result"]
     assert tool_results
     assert "alpha" in tool_results[0].result
 
     assistant_messages = [m for m in agent.session.messages if m.role.value == "assistant"]
     assert assistant_messages
     assert assistant_messages[-1].content == "Done."
+
+
+@pytest.mark.asyncio
+async def test_agent_retries_retryable_tool_failures_once(temp_dir):
+    class NoParams(BaseModel):
+        pass
+
+    class FlakyTool(BaseTool[NoParams]):
+        name = "flaky"
+        description = "Fails once, then succeeds."
+        parameters = NoParams
+
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def execute(self, params: NoParams) -> str:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise TimeoutError("temporary timeout")
+            return "recovered"
+
+    scripts = [
+        make_tool_call_events("call_1", "flaky", {}),
+        make_text_events("Done."),
+    ]
+    agent, _ = build_agent(temp_dir, scripts)
+    flaky = FlakyTool()
+    agent.tools.register(flaky)
+
+    chunks = []
+    async for chunk in agent.run("Run flaky tool"):
+        chunks.append(chunk)
+
+    tool_results = [c.payload for c in chunks if c.type == "tool_result"]
+    assert tool_results
+    assert tool_results[0].result == "recovered"
+    assert flaky.attempts == 2
 
 
 @pytest.mark.asyncio
@@ -158,7 +197,9 @@ async def test_agent_surfaces_stream_error_as_system_message(temp_dir):
     async for chunk in agent.run("Hello"):
         chunks.append(chunk)
 
-    system_messages = [c for c in chunks if isinstance(c, Message) and c.role.value == "system"]
+    system_messages = [
+        c.payload for c in chunks if c.type == "message" and c.payload.role.value == "system"
+    ]
     assert system_messages
     assert "LLM stream error" in system_messages[0].content
 

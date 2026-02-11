@@ -545,19 +545,13 @@ class AnthropicProvider:
                         if block_type == "text":
                             current_text = block.get("text", "")
                             output.content.append(TextBlock(text=current_text))
-                            stream.push(
-                                TextStartEvent(content_index=current_block_index, partial=output)
-                            )
+                            stream.push(TextStartEvent(content_index=current_block_index))
 
                         elif block_type == "thinking":
                             current_thinking = block.get("thinking", "")
                             current_thinking_signature = None
                             output.content.append(ThinkingBlock(thinking=current_thinking))
-                            stream.push(
-                                ThinkingStartEvent(
-                                    content_index=current_block_index, partial=output
-                                )
-                            )
+                            stream.push(ThinkingStartEvent(content_index=current_block_index))
 
                         elif block_type == "tool_use":
                             tool_name = block.get("name", "")
@@ -573,7 +567,6 @@ class AnthropicProvider:
                                     content_index=current_block_index,
                                     tool_id=current_tool.id,
                                     tool_name=current_tool.name,
-                                    partial=output,
                                 )
                             )
 
@@ -589,11 +582,7 @@ class AnthropicProvider:
                                 if output.content and isinstance(output.content[-1], TextBlock):
                                     output.content[-1].text = current_text
                                 stream.push(
-                                    TextDeltaEvent(
-                                        content_index=current_block_index,
-                                        delta=text,
-                                        partial=output,
-                                    )
+                                    TextDeltaEvent(content_index=current_block_index, delta=text)
                                 )
 
                         elif delta_type == "thinking_delta":
@@ -605,9 +594,7 @@ class AnthropicProvider:
                                     output.content[-1].thinking = current_thinking
                                 stream.push(
                                     ThinkingDeltaEvent(
-                                        content_index=current_block_index,
-                                        delta=thinking_text,
-                                        partial=output,
+                                        content_index=current_block_index, delta=thinking_text
                                     )
                                 )
 
@@ -627,20 +614,14 @@ class AnthropicProvider:
                                 current_tool.append_arguments_delta(partial_json)
                                 stream.push(
                                     ToolCallDeltaEvent(
-                                        content_index=current_block_index,
-                                        delta=partial_json,
-                                        partial=output,
+                                        content_index=current_block_index, delta=partial_json
                                     )
                                 )
 
                     elif event_type == "content_block_stop":
                         if current_block_type == "text":
                             stream.push(
-                                TextEndEvent(
-                                    content_index=current_block_index,
-                                    text=current_text,
-                                    partial=output,
-                                )
+                                TextEndEvent(content_index=current_block_index, text=current_text)
                             )
                             current_text = ""
 
@@ -650,7 +631,6 @@ class AnthropicProvider:
                                     content_index=current_block_index,
                                     thinking=current_thinking,
                                     signature=current_thinking_signature,
-                                    partial=output,
                                 )
                             )
                             if current_thinking_signature:
@@ -660,8 +640,7 @@ class AnthropicProvider:
                                             "anthropic": {
                                                 "thinking_signature": current_thinking_signature
                                             }
-                                        },
-                                        partial=output,
+                                        }
                                     )
                                 )
                             current_thinking = ""
@@ -678,9 +657,7 @@ class AnthropicProvider:
                             current_tool.arguments = args
                             stream.push(
                                 ToolCallEndEvent(
-                                    content_index=current_block_index,
-                                    tool_call=current_tool,
-                                    partial=output,
+                                    content_index=current_block_index, tool_call=current_tool
                                 )
                             )
                             current_tool = None

@@ -59,7 +59,7 @@ class StreamOptions:
 class PartialMessage:
     """In-progress assistant message built during streaming."""
 
-    content: list[Any] = field(default_factory=list)
+    content: list[ContentBlock] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
     stop_reason: StopReason = "stop"
     error_message: str | None = None
@@ -127,7 +127,6 @@ class TextStartEvent:
 
     type: Literal["text_start"] = "text_start"
     content_index: int = 0
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -137,7 +136,6 @@ class TextDeltaEvent:
     type: Literal["text_delta"] = "text_delta"
     content_index: int = 0
     delta: str = ""
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -147,7 +145,6 @@ class TextEndEvent:
     type: Literal["text_end"] = "text_end"
     content_index: int = 0
     text: str = ""
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -156,7 +153,6 @@ class ThinkingStartEvent:
 
     type: Literal["thinking_start"] = "thinking_start"
     content_index: int = 0
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -166,7 +162,6 @@ class ThinkingDeltaEvent:
     type: Literal["thinking_delta"] = "thinking_delta"
     content_index: int = 0
     delta: str = ""
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -177,7 +172,6 @@ class ThinkingEndEvent:
     content_index: int = 0
     thinking: str = ""
     signature: str | None = None
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -188,7 +182,6 @@ class ToolCallStartEvent:
     content_index: int = 0
     tool_id: str = ""
     tool_name: str = ""
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -198,7 +191,6 @@ class ToolCallDeltaEvent:
     type: Literal["toolcall_delta"] = "toolcall_delta"
     content_index: int = 0
     delta: str = ""
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -208,7 +200,6 @@ class ToolCallEndEvent:
     type: Literal["toolcall_end"] = "toolcall_end"
     content_index: int = 0
     tool_call: ToolCallBlock = field(default_factory=ToolCallBlock)
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)
@@ -217,7 +208,6 @@ class AssistantMetadataEvent:
 
     type: Literal["assistant_metadata"] = "assistant_metadata"
     metadata: dict[str, Any] = field(default_factory=dict)
-    partial: PartialMessage = field(default_factory=PartialMessage)
 
 
 @dataclass(slots=True)

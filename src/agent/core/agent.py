@@ -4,9 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from agent.core.chunk import (
+    AgentChunk,
+    MessageChunk,
+    TextDeltaChunk,
+    ThinkingDeltaChunk,
+    ToolCallChunk,
+    ToolCallStartChunk,
+    ToolResultChunk,
+)
 from agent.core.context import ContextManager
 from agent.core.context_loader import load_all_context
 from agent.core.events import (
@@ -23,6 +33,7 @@ from agent.core.events import (
     ThinkingStartEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
+    ToolExecutionUpdateEvent,
     TurnEndEvent,
     TurnStartEvent,
 )
@@ -46,7 +57,7 @@ from agent.extensions.api import ExtensionAPI
 from agent.extensions.loader import ExtensionLoader
 from agent.extensions.runner import ExtensionRunner
 from agent.extensions.types import ToolCallEvent, ToolResultEvent
-from agent.llm.events import StreamOptions, ToolCallBlock
+from agent.llm.events import StreamEvent, StreamOptions, ToolCallBlock
 from agent.llm.events import ThinkingLevel as StreamThinkingLevel
 from agent.prompts.loader import PromptTemplateLoader
 from agent.prompts.parser import ParsedCommand, expand_template, parse_command
@@ -57,7 +68,7 @@ from agent.tools.find import FindTool
 from agent.tools.grep import GrepTool
 from agent.tools.ls import LsTool
 from agent.tools.read import ReadTool
-from agent.tools.registry import ToolRegistry
+from agent.tools.registry import ToolExecutionResult, ToolRegistry
 from agent.tools.write import WriteTool
 
 if TYPE_CHECKING:
@@ -65,6 +76,28 @@ if TYPE_CHECKING:
 
     from agent.llm.provider import LLMProvider
     from agent.tools.base import BaseTool
+
+
+@dataclass(slots=True)
+class _StreamConsumptionState:
+    """Accumulated state while consuming one provider stream turn."""
+
+    response_content: str = ""
+    thinking_content: str = ""
+    provider_metadata: dict[str, Any] = field(default_factory=dict)
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    thinking_started: bool = False
+    message_started: bool = False
+    stream_error: str | None = None
+    stream_aborted: bool = False
+
+
+@dataclass(slots=True)
+class _ToolExecutionState:
+    """Accumulated state while executing streamed tool calls."""
+
+    tool_results: list[ToolResult] = field(default_factory=list)
+    cancelled: bool = False
 
 
 class Agent:
@@ -95,6 +128,7 @@ class Agent:
         cwd: Path | None = None,
         skill_loader: SkillLoader | None = None,
         template_loader: PromptTemplateLoader | None = None,
+        summarization_provider: LLMProvider | None = None,
     ) -> None:
         """Initialize the agent.
 
@@ -105,6 +139,7 @@ class Agent:
             cwd: Working directory (defaults to Path.cwd())
             skill_loader: Optional skill loader (created if not provided)
             template_loader: Optional template loader (created if not provided)
+            summarization_provider: Optional provider used for context compaction summaries
         """
         self.config = config
         self._cwd = cwd or Path.cwd()
@@ -115,7 +150,11 @@ class Agent:
             if session is not None
             else Session.new(config.session_dir, provider=provider.name, model=provider.model)
         )
-        self.context = ContextManager(self.provider, config.context_max_tokens)
+        self.context = ContextManager(
+            self.provider,
+            config.context_max_tokens,
+            summarization_provider=summarization_provider or self.provider,
+        )
         self._total_tokens = 0
         self._listeners: set[Callable[[AgentEvent], Any]] = set()
         self._extension_api = ExtensionAPI()
@@ -359,16 +398,16 @@ class Agent:
 
     async def run(
         self, user_input: str, cancel_event: asyncio.Event | None = None
-    ) -> AsyncIterator[str | ToolCall | ToolCallStart | ToolResult | ThinkingContent | Message]:
-        """Process user input and yield response chunks, tool calls, or tool results.
+    ) -> AsyncIterator[AgentChunk]:
+        """Process user input and yield typed output chunks.
 
         Args:
             user_input: The user's message
             cancel_event: Optional event to signal cancellation
 
         Yields:
-            String tokens, ToolCall/ToolCallStart/ToolCallDelta objects,
-            ToolResult objects, or ThinkingContent
+            AgentChunk values for streamed text/thinking, tool calls/results,
+            and system messages
         """
         # Check for input blocking/transformation via extensions
         input_result = await self._extension_runner.emit_input(user_input)
@@ -416,7 +455,7 @@ class Agent:
                 command_msg = Message.system(f"[Command /{command.template_name}]\n{output}")
                 self.session.append(command_msg)
                 await self._emit(MessageEndEvent(message=command_msg))
-                yield command_msg
+                yield MessageChunk(payload=command_msg)
                 await self._emit(AgentEndEvent(messages=list(self.session.messages)))
                 return
 
@@ -498,226 +537,246 @@ class Agent:
             cancel_event=cancel_event,
         )
 
+    async def _consume_stream(
+        self, stream: AsyncIterator[StreamEvent], state: _StreamConsumptionState
+    ) -> AsyncIterator[AgentChunk]:
+        """Consume provider stream events and emit agent output chunks."""
+        async for event in stream:
+            match event.type:
+                case "text_start":
+                    if not state.message_started:
+                        await self._emit(MessageStartEvent())
+                        state.message_started = True
+
+                case "text_delta":
+                    if not state.message_started:
+                        await self._emit(MessageStartEvent())
+                        state.message_started = True
+                    state.response_content += event.delta
+                    await self._emit(MessageUpdateEvent(delta=event.delta))
+                    yield TextDeltaChunk(payload=event.delta)
+
+                case "thinking_start":
+                    if not state.thinking_started:
+                        await self._emit(ThinkingStartEvent())
+                        state.thinking_started = True
+
+                case "thinking_delta":
+                    if not state.thinking_started:
+                        await self._emit(ThinkingStartEvent())
+                        state.thinking_started = True
+                    state.thinking_content += event.delta
+                    await self._emit(ThinkingDeltaEvent(delta=event.delta))
+                    yield ThinkingDeltaChunk(payload=ThinkingContent(text=event.delta))
+
+                case "toolcall_start":
+                    yield ToolCallStartChunk(
+                        payload=ToolCallStart(
+                            id=event.tool_id,
+                            name=event.tool_name,
+                        )
+                    )
+
+                case "toolcall_end":
+                    tc_block: ToolCallBlock = event.tool_call
+                    tc = ToolCall(
+                        id=tc_block.id,
+                        name=tc_block.name,
+                        arguments=tc_block.arguments,
+                    )
+                    state.tool_calls.append(tc)
+                    yield ToolCallChunk(payload=tc)
+
+                case "assistant_metadata":
+                    if isinstance(event.metadata, dict):
+                        for key, value in event.metadata.items():
+                            if isinstance(value, dict) and isinstance(
+                                state.provider_metadata.get(key), dict
+                            ):
+                                state.provider_metadata[key].update(value)
+                            else:
+                                state.provider_metadata[key] = value
+
+                case "error":
+                    state.stream_error = event.message.error_message or "LLM stream error"
+                    state.stream_aborted = event.stop_reason == "aborted"
+                    break
+                case "done":
+                    pass
+
+    async def _execute_tool_calls(
+        self,
+        tool_calls: list[ToolCall],
+        cancel_event: asyncio.Event | None,
+        state: _ToolExecutionState,
+    ) -> AsyncIterator[AgentChunk]:
+        """Execute tool calls and emit tool result chunks."""
+        for tool_call in tool_calls:
+            if cancel_event and cancel_event.is_set():
+                state.cancelled = True
+                break
+
+            await self._emit(
+                ToolExecutionStartEvent(
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_call.name,
+                    args=tool_call.arguments,
+                )
+            )
+
+            block_result = await self._extension_runner.emit_tool_call(
+                ToolCallEvent(
+                    tool_name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                    input=tool_call.arguments,
+                )
+            )
+
+            if block_result and block_result.block:
+                result = f"Tool blocked: {block_result.reason or 'blocked by extension'}"
+                is_error = True
+            else:
+                exec_result = await self._execute_tool_with_retry(tool_call)
+                result = exec_result.content
+                is_error = exec_result.is_error
+
+            mod = await self._extension_runner.emit_tool_result(
+                ToolResultEvent(
+                    tool_name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                    content=result,
+                    is_error=is_error,
+                )
+            )
+            if mod:
+                if mod.content is not None:
+                    result = mod.content
+                if mod.is_error is not None:
+                    is_error = mod.is_error
+
+            await self._emit(
+                ToolExecutionEndEvent(
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_call.name,
+                    result=result,
+                    is_error=is_error,
+                )
+            )
+
+            self.session.append(
+                Message(
+                    role=Role.TOOL,
+                    content=result,
+                    tool_call_id=tool_call.id,
+                )
+            )
+
+            tr = ToolResult(
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                result=result,
+            )
+            state.tool_results.append(tr)
+            yield ToolResultChunk(payload=tr)
+
+    async def _execute_tool_with_retry(self, tool_call: ToolCall) -> ToolExecutionResult:
+        """Execute a tool call once, with a single retry for retryable failures."""
+        exec_result = await self.tools.execute(tool_call.name, tool_call.arguments)
+        err = exec_result.error
+        if not exec_result.is_error or err is None:
+            return exec_result
+
+        # Unknown tool/validation errors are deterministic; skip retries.
+        if err.kind in ("unknown_tool", "validation") or not err.retryable:
+            return exec_result
+
+        await self._emit(
+            ToolExecutionUpdateEvent(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                partial_result=f"Retrying tool after {err.kind} error: {err.message}",
+            )
+        )
+        return await self.tools.execute(tool_call.name, tool_call.arguments)
+
     async def _agent_loop(
         self,
         cancel_event: asyncio.Event | None = None,
-    ) -> AsyncIterator[str | ToolCall | ToolCallStart | ToolResult | ThinkingContent | Message]:
+    ) -> AsyncIterator[AgentChunk]:
         """Run the agent loop with tool execution."""
         max_iterations = 25  # Prevent infinite loops
         self._in_loop = True
 
         try:
             for turn in range(max_iterations):
-                # Check cancellation at start of each turn
                 if cancel_event and cancel_event.is_set():
                     break
 
                 await self._emit(TurnStartEvent(turn_number=turn))
 
-                response_content = ""
-                thinking_content = ""
-                provider_metadata: dict[str, Any] = {}
-                tool_calls: list[ToolCall] = []
-                thinking_started = False
-                message_started = False
-                stream_error: str | None = None
-                stream_aborted = False
-
-                # Allow extensions to modify context before LLM call
                 messages_for_llm = await self._extension_runner.emit_context(
                     list(self.session.messages)
                 )
-
-                # Build stream options with cancel_event
                 options = self._build_stream_options(cancel_event=cancel_event)
-
-                # Get completion stream
                 stream = self.provider.stream(
                     messages_for_llm,
                     tools=self.tools.get_schemas(),
                     options=options,
                 )
 
-                # Consume events from stream
-                async for event in stream:
-                    match event.type:
-                        case "text_start":
-                            if not message_started:
-                                await self._emit(MessageStartEvent())
-                                message_started = True
+                stream_state = _StreamConsumptionState()
+                async for chunk in self._consume_stream(stream, stream_state):
+                    yield chunk
 
-                        case "text_delta":
-                            if not message_started:
-                                await self._emit(MessageStartEvent())
-                                message_started = True
-                            response_content += event.delta
-                            await self._emit(MessageUpdateEvent(delta=event.delta))
-                            yield event.delta
-
-                        case "thinking_start":
-                            if not thinking_started:
-                                await self._emit(ThinkingStartEvent())
-                                thinking_started = True
-
-                        case "thinking_delta":
-                            if not thinking_started:
-                                await self._emit(ThinkingStartEvent())
-                                thinking_started = True
-                            thinking_content += event.delta
-                            await self._emit(ThinkingDeltaEvent(delta=event.delta))
-                            yield ThinkingContent(text=event.delta)
-
-                        case "toolcall_start":
-                            # Yield early notification that tool call is starting
-                            yield ToolCallStart(
-                                id=event.tool_id,
-                                name=event.tool_name,
-                            )
-
-                        case "toolcall_end":
-                            # Convert ToolCallBlock to ToolCall
-                            tc_block: ToolCallBlock = event.tool_call
-                            tc = ToolCall(
-                                id=tc_block.id,
-                                name=tc_block.name,
-                                arguments=tc_block.arguments,
-                            )
-                            tool_calls.append(tc)
-                            yield tc
-
-                        case "assistant_metadata":
-                            if isinstance(event.metadata, dict):
-                                for key, value in event.metadata.items():
-                                    if isinstance(value, dict) and isinstance(
-                                        provider_metadata.get(key), dict
-                                    ):
-                                        provider_metadata[key].update(value)
-                                    else:
-                                        provider_metadata[key] = value
-
-                        case "error":
-                            stream_error = event.message.error_message or "LLM stream error"
-                            stream_aborted = event.stop_reason == "aborted"
-                            break
-                        case "done":
-                            # Stream complete
-                            pass
-
-                if stream_error:
-                    if not stream_aborted:
-                        error_msg = Message.system(f"[LLM stream error]\n{stream_error}")
+                if stream_state.stream_error:
+                    if not stream_state.stream_aborted:
+                        error_msg = Message.system(
+                            f"[LLM stream error]\n{stream_state.stream_error}"
+                        )
                         self.session.append(error_msg)
                         await self._emit(MessageEndEvent(message=error_msg))
-                        yield error_msg
+                        yield MessageChunk(payload=error_msg)
                         await self._emit(TurnEndEvent(message=None, tool_results=[]))
                     break
 
-                # End thinking if started
-                if thinking_started:
-                    await self._emit(ThinkingEndEvent(content=thinking_content))
+                if stream_state.thinking_started:
+                    await self._emit(ThinkingEndEvent(content=stream_state.thinking_content))
 
-                # Build message with thinking
                 thinking_obj = (
-                    ThinkingContent(text=thinking_content or "") if thinking_content else None
+                    ThinkingContent(text=stream_state.thinking_content or "")
+                    if stream_state.thinking_content
+                    else None
                 )
                 assistant_msg = Message(
                     role=Role.ASSISTANT,
-                    content=response_content,
-                    tool_calls=tool_calls if tool_calls else None,
+                    content=stream_state.response_content,
+                    tool_calls=stream_state.tool_calls if stream_state.tool_calls else None,
                     thinking=thinking_obj,
-                    provider_metadata=provider_metadata or None,
+                    provider_metadata=stream_state.provider_metadata or None,
                     provider=self.provider.name,
                     model=self.provider.model,
                 )
 
-                # Save assistant response
                 self.session.append(assistant_msg)
                 await self._emit(MessageEndEvent(message=assistant_msg))
 
-                # If no tool calls, we're done
-                if not tool_calls:
+                if not stream_state.tool_calls:
                     await self._emit(TurnEndEvent(message=assistant_msg, tool_results=[]))
                     break
 
-                # Execute tools and add results
-                tool_results: list[ToolResult] = []
-                for tool_call in tool_calls:
-                    # Check cancellation before each tool
-                    if cancel_event and cancel_event.is_set():
-                        break
+                tool_state = _ToolExecutionState()
+                async for chunk in self._execute_tool_calls(
+                    stream_state.tool_calls, cancel_event, tool_state
+                ):
+                    yield chunk
 
-                    await self._emit(
-                        ToolExecutionStartEvent(
-                            tool_call_id=tool_call.id,
-                            tool_name=tool_call.name,
-                            args=tool_call.arguments,
-                        )
-                    )
+                await self._emit(
+                    TurnEndEvent(message=assistant_msg, tool_results=tool_state.tool_results)
+                )
 
-                    # Check if extension wants to block
-                    block_result = await self._extension_runner.emit_tool_call(
-                        ToolCallEvent(
-                            tool_name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                            input=tool_call.arguments,
-                        )
-                    )
-
-                    if block_result and block_result.block:
-                        result = f"Tool blocked: {block_result.reason or 'blocked by extension'}"
-                        is_error = True
-                    else:
-                        exec_result = await self.tools.execute(tool_call.name, tool_call.arguments)
-                        result = exec_result.content
-                        is_error = exec_result.is_error
-
-                    # Allow extension to modify result
-                    mod = await self._extension_runner.emit_tool_result(
-                        ToolResultEvent(
-                            tool_name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                            content=result,
-                            is_error=is_error,
-                        )
-                    )
-                    if mod:
-                        if mod.content is not None:
-                            result = mod.content
-                        if mod.is_error is not None:
-                            is_error = mod.is_error
-
-                    await self._emit(
-                        ToolExecutionEndEvent(
-                            tool_call_id=tool_call.id,
-                            tool_name=tool_call.name,
-                            result=result,
-                            is_error=is_error,
-                        )
-                    )
-
-                    self.session.append(
-                        Message(
-                            role=Role.TOOL,
-                            content=result,
-                            tool_call_id=tool_call.id,
-                        )
-                    )
-
-                    tr = ToolResult(
-                        tool_call_id=tool_call.id,
-                        name=tool_call.name,
-                        result=result,
-                    )
-                    tool_results.append(tr)
-                    yield tr
-
-                await self._emit(TurnEndEvent(message=assistant_msg, tool_results=tool_results))
-
-                # Check cancellation after tool execution
-                if cancel_event and cancel_event.is_set():
+                if tool_state.cancelled or (cancel_event and cancel_event.is_set()):
                     break
 
-            # Update token count
             self._total_tokens = self.context.current_tokens(self.session.messages)
         finally:
             self._in_loop = False

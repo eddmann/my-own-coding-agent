@@ -8,7 +8,6 @@ import pytest
 
 from agent.config import Config
 from agent.core.agent import Agent
-from agent.core.message import Message
 from tests.test_doubles.llm_provider_fake import LLMProviderFake
 from tests.test_doubles.llm_stream_builders import make_text_events
 
@@ -52,7 +51,9 @@ async def test_agent_runs_extension_command_without_calling_llm(temp_dir):
     async for chunk in agent.run("/ping hello"):
         chunks.append(chunk)
 
-    system_messages = [c for c in chunks if isinstance(c, Message) and c.role.value == "system"]
+    system_messages = [
+        c.payload for c in chunks if c.type == "message" and c.payload.role.value == "system"
+    ]
     assert system_messages
     assert "pong" in system_messages[0].content
     assert len(provider.stream_calls) == 0

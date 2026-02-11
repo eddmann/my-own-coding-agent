@@ -14,9 +14,13 @@ from agent.llm.openai_codex import oauth
 
 def _jwt_for_account(account_id: str) -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"none","typ":"JWT"}').decode().rstrip("=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps({oauth.JWT_CLAIM_PATH: {"chatgpt_account_id": account_id}}).encode("utf-8")
-    ).decode().rstrip("=")
+    payload = (
+        base64.urlsafe_b64encode(
+            json.dumps({oauth.JWT_CLAIM_PATH: {"chatgpt_account_id": account_id}}).encode("utf-8")
+        )
+        .decode()
+        .rstrip("=")
+    )
     return f"{header}.{payload}.signature"
 
 

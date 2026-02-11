@@ -1,11 +1,21 @@
 """Tool registry for lookup and execution."""
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
 from agent.tools.base import BaseTool, ToolError
+
+
+@dataclass(slots=True)
+class ToolExecutionError:
+    """Structured tool failure details."""
+
+    kind: Literal["unknown_tool", "validation", "tool_error", "unexpected"]
+    message: str
+    retryable: bool = False
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -14,6 +24,7 @@ class ToolExecutionResult:
 
     content: str
     is_error: bool = False
+    error: ToolExecutionError | None = None
 
 
 class ToolRegistry:
@@ -33,7 +44,7 @@ class ToolRegistry:
         return self._tools.get(name)
 
     async def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
-        """Execute a tool with JSON arguments, returning content + error flag.
+        """Execute a tool with JSON arguments, returning content + structured error info.
 
         Args:
             name: The tool name
@@ -44,9 +55,15 @@ class ToolRegistry:
         """
         tool = self._tools.get(name)
         if tool is None:
+            err = ToolExecutionError(
+                kind="unknown_tool",
+                message=f"Unknown tool: {name}",
+                retryable=False,
+            )
             return ToolExecutionResult(
-                content=f"Error: Unknown tool: {name}",
+                content=f"Error: {err.message}",
                 is_error=True,
+                error=err,
             )
 
         try:
@@ -57,16 +74,35 @@ class ToolRegistry:
                 is_error=False,
             )
         except ToolError as e:
-            return ToolExecutionResult(content=str(e), is_error=True)
+            err = ToolExecutionError(
+                kind="tool_error",
+                message=str(e),
+                retryable=bool(getattr(e, "retryable", False)),
+            )
+            return ToolExecutionResult(content=str(e), is_error=True, error=err)
         except ValidationError as e:
+            err = ToolExecutionError(
+                kind="validation",
+                message="Invalid parameters",
+                retryable=False,
+                details={"errors": e.errors()},
+            )
             return ToolExecutionResult(
                 content=f"Error: Invalid parameters: {e}",
                 is_error=True,
+                error=err,
             )
         except Exception as e:
+            retryable = isinstance(e, (TimeoutError, ConnectionError))
+            err = ToolExecutionError(
+                kind="unexpected",
+                message=f"{type(e).__name__}: {e}",
+                retryable=retryable,
+            )
             return ToolExecutionResult(
                 content=f"Error: {type(e).__name__}: {e}",
                 is_error=True,
+                error=err,
             )
 
     def get_schemas(self) -> list[dict[str, Any]]:

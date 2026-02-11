@@ -221,20 +221,13 @@ class OpenAIChatProvider(OpenAIBase):
                         if not thinking_started:
                             thinking_started = True
                             output.content.append(ThinkingBlock(thinking=""))
-                            stream.push(
-                                ThinkingStartEvent(
-                                    content_index=len(output.content) - 1,
-                                    partial=output,
-                                )
-                            )
+                            stream.push(ThinkingStartEvent(content_index=len(output.content) - 1))
                         thinking_content += reasoning
                         if output.content and isinstance(output.content[-1], ThinkingBlock):
                             output.content[-1].thinking = thinking_content
                         stream.push(
                             ThinkingDeltaEvent(
-                                content_index=len(output.content) - 1,
-                                delta=reasoning,
-                                partial=output,
+                                content_index=len(output.content) - 1, delta=reasoning
                             )
                         )
 
@@ -242,30 +235,19 @@ class OpenAIChatProvider(OpenAIBase):
                         if thinking_started and not text_started:
                             stream.push(
                                 ThinkingEndEvent(
-                                    content_index=len(output.content) - 1,
-                                    thinking=thinking_content,
-                                    partial=output,
+                                    content_index=len(output.content) - 1, thinking=thinking_content
                                 )
                             )
 
                         if not text_started:
                             text_started = True
                             output.content.append(TextBlock(text=""))
-                            stream.push(
-                                TextStartEvent(
-                                    content_index=len(output.content) - 1,
-                                    partial=output,
-                                )
-                            )
+                            stream.push(TextStartEvent(content_index=len(output.content) - 1))
                         text_content += content
                         if output.content and isinstance(output.content[-1], TextBlock):
                             output.content[-1].text = text_content
                         stream.push(
-                            TextDeltaEvent(
-                                content_index=len(output.content) - 1,
-                                delta=content,
-                                partial=output,
-                            )
+                            TextDeltaEvent(content_index=len(output.content) - 1, delta=content)
                         )
 
                     if tool_calls := delta.get("tool_calls"):
@@ -284,7 +266,6 @@ class OpenAIChatProvider(OpenAIBase):
                                         content_index=len(output.content) - 1,
                                         tool_id=tool_block.id,
                                         tool_name=tool_block.name,
-                                        partial=output,
                                     )
                                 )
 
@@ -304,7 +285,6 @@ class OpenAIChatProvider(OpenAIBase):
                                         ToolCallDeltaEvent(
                                             content_index=len(output.content) - 1,
                                             delta=func["arguments"],
-                                            partial=output,
                                         )
                                     )
 
@@ -315,22 +295,10 @@ class OpenAIChatProvider(OpenAIBase):
                 return
 
             if thinking_started and not text_started:
-                stream.push(
-                    ThinkingEndEvent(
-                        content_index=0,
-                        thinking=thinking_content,
-                        partial=output,
-                    )
-                )
+                stream.push(ThinkingEndEvent(content_index=0, thinking=thinking_content))
 
             if text_started:
-                stream.push(
-                    TextEndEvent(
-                        content_index=len(output.content) - 1,
-                        text=text_content,
-                        partial=output,
-                    )
-                )
+                stream.push(TextEndEvent(content_index=len(output.content) - 1, text=text_content))
 
             for idx in sorted(pending_tool_calls.keys()):
                 tool_block = pending_tool_calls[idx]
@@ -341,11 +309,7 @@ class OpenAIChatProvider(OpenAIBase):
                     args = {}
                 tool_block.arguments = args
                 stream.push(
-                    ToolCallEndEvent(
-                        content_index=len(output.content) - 1,
-                        tool_call=tool_block,
-                        partial=output,
-                    )
+                    ToolCallEndEvent(content_index=len(output.content) - 1, tool_call=tool_block)
                 )
 
             output.stop_reason = map_stop_reason(finish_reason)

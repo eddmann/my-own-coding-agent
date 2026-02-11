@@ -353,22 +353,12 @@ class OpenAIResponsesProvider(OpenAIBase):
                             current_item = item
                             current_block = ThinkingBlock(thinking="")
                             output.content.append(current_block)
-                            stream.push(
-                                ThinkingStartEvent(
-                                    content_index=_content_index(),
-                                    partial=output,
-                                )
-                            )
+                            stream.push(ThinkingStartEvent(content_index=_content_index()))
                         elif item.get("type") == "message":
                             current_item = item
                             current_block = TextBlock(text="")
                             output.content.append(current_block)
-                            stream.push(
-                                TextStartEvent(
-                                    content_index=_content_index(),
-                                    partial=output,
-                                )
-                            )
+                            stream.push(TextStartEvent(content_index=_content_index()))
                         elif item.get("type") == "function_call":
                             current_item = item
                             call_id = item.get("call_id", "")
@@ -389,7 +379,6 @@ class OpenAIResponsesProvider(OpenAIBase):
                                     content_index=_content_index(),
                                     tool_id=current_block.id,
                                     tool_name=current_block.name,
-                                    partial=output,
                                 )
                             )
 
@@ -415,11 +404,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                                         last_part["text"] = f"{last_part.get('text', '')}{delta}"
                                 current_block.thinking += delta
                                 stream.push(
-                                    ThinkingDeltaEvent(
-                                        content_index=_content_index(),
-                                        delta=delta,
-                                        partial=output,
-                                    )
+                                    ThinkingDeltaEvent(content_index=_content_index(), delta=delta)
                                 )
 
                     elif event_type == "response.reasoning_summary_part.done":
@@ -435,11 +420,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                                     last_part["text"] = f"{last_part.get('text', '')}\n\n"
                             current_block.thinking += "\n\n"
                             stream.push(
-                                ThinkingDeltaEvent(
-                                    content_index=_content_index(),
-                                    delta="\n\n",
-                                    partial=output,
-                                )
+                                ThinkingDeltaEvent(content_index=_content_index(), delta="\n\n")
                             )
 
                     elif event_type in ("response.output_text.delta", "response.refusal.delta"):
@@ -452,11 +433,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                             if delta:
                                 current_block.text += delta
                                 stream.push(
-                                    TextDeltaEvent(
-                                        content_index=_content_index(),
-                                        delta=delta,
-                                        partial=output,
-                                    )
+                                    TextDeltaEvent(content_index=_content_index(), delta=delta)
                                 )
 
                     elif event_type == "response.function_call_arguments.delta":
@@ -470,11 +447,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                                 current_block.append_arguments_delta(delta)
                             )
                             stream.push(
-                                ToolCallDeltaEvent(
-                                    content_index=_content_index(),
-                                    delta=delta,
-                                    partial=output,
-                                )
+                                ToolCallDeltaEvent(content_index=_content_index(), delta=delta)
                             )
 
                     elif event_type == "response.function_call_arguments.done":
@@ -505,13 +478,11 @@ class OpenAIResponsesProvider(OpenAIBase):
                                     content_index=_content_index(),
                                     thinking=current_block.thinking,
                                     signature=signature,
-                                    partial=output,
                                 )
                             )
                             stream.push(
                                 AssistantMetadataEvent(
-                                    metadata={"openai_responses": {"reasoning_item": signature}},
-                                    partial=output,
+                                    metadata={"openai_responses": {"reasoning_item": signature}}
                                 )
                             )
                             current_block = None
@@ -529,9 +500,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                             current_block.text = text or current_block.text
                             stream.push(
                                 TextEndEvent(
-                                    content_index=_content_index(),
-                                    text=current_block.text,
-                                    partial=output,
+                                    content_index=_content_index(), text=current_block.text
                                 )
                             )
                             if text_signature:
@@ -539,8 +508,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                                     AssistantMetadataEvent(
                                         metadata={
                                             "openai_responses": {"output_item_id": text_signature}
-                                        },
-                                        partial=output,
+                                        }
                                     )
                                 )
                             current_block = None
@@ -557,9 +525,7 @@ class OpenAIResponsesProvider(OpenAIBase):
                                 current_block.arguments = args
                                 stream.push(
                                     ToolCallEndEvent(
-                                        content_index=_content_index(),
-                                        tool_call=current_block,
-                                        partial=output,
+                                        content_index=_content_index(), tool_call=current_block
                                     )
                                 )
                             current_block = None

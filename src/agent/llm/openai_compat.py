@@ -335,21 +335,12 @@ class OpenAICompatibleProvider:
                         if not text_started:
                             text_started = True
                             output.content.append(TextBlock(text=""))
-                            stream.push(
-                                TextStartEvent(
-                                    content_index=len(output.content) - 1,
-                                    partial=output,
-                                )
-                            )
+                            stream.push(TextStartEvent(content_index=len(output.content) - 1))
                         text_content += content
                         if output.content and isinstance(output.content[-1], TextBlock):
                             output.content[-1].text = text_content
                         stream.push(
-                            TextDeltaEvent(
-                                content_index=len(output.content) - 1,
-                                delta=content,
-                                partial=output,
-                            )
+                            TextDeltaEvent(content_index=len(output.content) - 1, delta=content)
                         )
 
                     # Handle tool calls
@@ -378,7 +369,6 @@ class OpenAICompatibleProvider:
                                         content_index=len(output.content) - 1,
                                         tool_id=tool_block.id,
                                         tool_name=tool_block.name,
-                                        partial=output,
                                     )
                                 )
 
@@ -404,7 +394,6 @@ class OpenAICompatibleProvider:
                                         ToolCallDeltaEvent(
                                             content_index=len(output.content) - 1,
                                             delta=func["arguments"],
-                                            partial=output,
                                         )
                                     )
 
@@ -417,13 +406,7 @@ class OpenAICompatibleProvider:
 
             # End text block if started
             if text_started:
-                stream.push(
-                    TextEndEvent(
-                        content_index=len(output.content) - 1,
-                        text=text_content,
-                        partial=output,
-                    )
-                )
+                stream.push(TextEndEvent(content_index=len(output.content) - 1, text=text_content))
 
             # Emit completed tool calls
             for idx in sorted(pending_tool_calls.keys()):
@@ -435,11 +418,7 @@ class OpenAICompatibleProvider:
                     args = {}
                 tool_block.arguments = args
                 stream.push(
-                    ToolCallEndEvent(
-                        content_index=len(output.content) - 1,
-                        tool_call=tool_block,
-                        partial=output,
-                    )
+                    ToolCallEndEvent(content_index=len(output.content) - 1, tool_call=tool_block)
                 )
 
             # Set stop reason

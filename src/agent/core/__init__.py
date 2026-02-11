@@ -1,6 +1,7 @@
 """Core agent components."""
 
 from agent.core.agent import Agent
+from agent.core.chunk import AgentChunk
 from agent.core.context import ContextManager
 from agent.core.events import (
     AgentEndEvent,
@@ -33,6 +34,8 @@ __all__ = [
     "THINKING_BUDGETS",
     # Context
     "ContextManager",
+    # Agent chunks
+    "AgentChunk",
     # Events
     "AgentEndEvent",
     "AgentEvent",

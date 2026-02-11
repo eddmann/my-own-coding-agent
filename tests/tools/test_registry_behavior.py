@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import BaseModel
 
-from agent.tools import ReadTool, ToolRegistry, WriteTool
+from agent.tools import BaseTool, ReadTool, ToolRegistry, WriteTool
 
 
 def test_register_and_get():
@@ -51,3 +52,32 @@ async def test_execute_unknown_tool():
     assert result.is_error is True
     assert "Error" in result.content
     assert "Unknown tool" in result.content
+    assert result.error is not None
+    assert result.error.kind == "unknown_tool"
+    assert result.error.retryable is False
+
+
+class EmptyParams(BaseModel):
+    pass
+
+
+class TimeoutTool(BaseTool[EmptyParams]):
+    name = "timeout_tool"
+    description = "Raises TimeoutError to simulate retryable failures."
+    parameters = EmptyParams
+
+    async def execute(self, params: EmptyParams) -> str:
+        raise TimeoutError("timed out")
+
+
+@pytest.mark.asyncio
+async def test_execute_marks_timeout_errors_retryable():
+    registry = ToolRegistry()
+    registry.register(TimeoutTool())
+
+    result = await registry.execute("timeout_tool", {})
+
+    assert result.is_error is True
+    assert result.error is not None
+    assert result.error.kind == "unexpected"
+    assert result.error.retryable is True

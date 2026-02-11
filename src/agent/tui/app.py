@@ -15,7 +15,15 @@ from textual.theme import Theme
 from textual.widgets import Static
 
 from agent.core.agent import Agent
-from agent.core.message import Message, Role, ThinkingContent, ToolCall, ToolCallStart, ToolResult
+from agent.core.chunk import (
+    MessageChunk,
+    TextDeltaChunk,
+    ThinkingDeltaChunk,
+    ToolCallChunk,
+    ToolCallStartChunk,
+    ToolResultChunk,
+)
+from agent.core.message import Role
 from agent.core.session import MessageEntry, Session
 from agent.core.settings import ThinkingLevel
 from agent.prompts.loader import PromptTemplateLoader
@@ -469,35 +477,37 @@ class AgentApp(App[None]):
                 if self._cancel_event and self._cancel_event.is_set():
                     break
 
-                if isinstance(chunk, ThinkingContent):
-                    if not in_thinking:
-                        await chat.start_thinking()
-                        in_thinking = True
-                    chat.append_to_thinking(chunk.text)
-                elif isinstance(chunk, str):
-                    if in_thinking:
-                        chat.end_thinking()
-                        in_thinking = False
-                    await chat.append_to_assistant(chunk)
-                elif isinstance(chunk, ToolCallStart):
-                    # Tool call starting - show early indicator
-                    if in_thinking:
-                        chat.end_thinking()
-                        in_thinking = False
-                    chat.end_assistant_message()
-                    await chat.start_tool_call(chunk.id, chunk.name)
-                elif isinstance(chunk, ToolCall):
-                    # Tool call complete with arguments
-                    if in_thinking:
-                        chat.end_thinking()
-                        in_thinking = False
-                    chat.end_assistant_message()
-                    chat.complete_tool_call(chunk)
-                elif isinstance(chunk, ToolResult):
-                    chat.set_tool_result(chunk.tool_call_id, chunk.result)
-                elif isinstance(chunk, Message):
-                    if chunk.role.value == "system":
-                        chat.add_system_message(chunk.content)
+                match chunk:
+                    case ThinkingDeltaChunk(payload=thinking):
+                        if not in_thinking:
+                            await chat.start_thinking()
+                            in_thinking = True
+                        chat.append_to_thinking(thinking.text)
+                    case TextDeltaChunk(payload=text):
+                        if in_thinking:
+                            chat.end_thinking()
+                            in_thinking = False
+                        await chat.append_to_assistant(text)
+                    case ToolCallStartChunk(payload=tool_call_start):
+                        # Tool call starting - show early indicator
+                        if in_thinking:
+                            chat.end_thinking()
+                            in_thinking = False
+                        chat.end_assistant_message()
+                        await chat.start_tool_call(tool_call_start.id, tool_call_start.name)
+                    case ToolCallChunk(payload=tool_call):
+                        # Tool call complete with arguments
+                        if in_thinking:
+                            chat.end_thinking()
+                            in_thinking = False
+                        chat.end_assistant_message()
+                        chat.complete_tool_call(tool_call)
+                    case ToolResultChunk(payload=tool_result):
+                        chat.set_tool_result(tool_result.tool_call_id, tool_result.result)
+                    case MessageChunk(payload=message) if message.role.value == "system":
+                        chat.add_system_message(message.content)
+                    case _:
+                        pass
 
             if in_thinking:
                 chat.end_thinking()

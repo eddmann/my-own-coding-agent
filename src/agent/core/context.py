@@ -21,14 +21,15 @@ class CompactionResult:
 class ContextManager:
     """Manages context window and compaction."""
 
-    provider: LLMProvider
+    primary_provider: LLMProvider
     max_tokens: int
+    summarization_provider: LLMProvider
     reserve_tokens: int = 8192  # Reserve for response and tools
     keep_recent: int = 10  # Always keep last N messages
 
     def current_tokens(self, messages: list[Message]) -> int:
         """Calculate total tokens in messages."""
-        return self.provider.count_messages_tokens(messages)
+        return self.primary_provider.count_messages_tokens(messages)
 
     def needs_compaction(self, messages: list[Message]) -> bool:
         """Check if compaction is needed."""
@@ -93,7 +94,7 @@ class ContextManager:
         error_message: str | None = None
 
         try:
-            stream = self.provider.stream(
+            stream = self.summarization_provider.stream(
                 [summary_prompt],
                 tools=None,
                 options=StreamOptions(

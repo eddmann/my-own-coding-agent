@@ -221,9 +221,7 @@ def build_system_prompt(options: SystemPromptOptions | None = None) -> str:
         sections.append(tool_section)
 
     # 3. Dynamic guidelines
-    if options.selected_tools and (
-        guidelines := _build_guidelines_section(options.selected_tools)
-    ):
+    if options.selected_tools and (guidelines := _build_guidelines_section(options.selected_tools)):
         sections.append(guidelines)
 
     # 4. Context files

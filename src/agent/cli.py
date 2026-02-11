@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from agent.config import Config
-from agent.core.message import Message, Role, ThinkingContent, ToolCall
+from agent.core.chunk import MessageChunk, TextDeltaChunk, ThinkingDeltaChunk, ToolCallChunk
+from agent.core.message import Role
 from agent.core.session import MessageEntry, Session, SessionStateEntry
 from agent.core.settings import ThinkingLevel
 from agent.llm.anthropic.oauth import (
@@ -296,27 +297,32 @@ async def _run_headless(
     in_thinking = False
     try:
         async for chunk in agent.run(prompt):
-            if isinstance(chunk, ThinkingContent):
-                if not in_thinking:
-                    print("\n[Thinking...]", flush=True)
-                    in_thinking = True
-                # Optionally print thinking (uncomment to see):
-                # print(chunk.text, end="", flush=True)
-            elif isinstance(chunk, str):
-                if in_thinking:
-                    print("\n[/Thinking]", flush=True)
-                    in_thinking = False
-                print(chunk, end="", flush=True)
-            elif isinstance(chunk, ToolCall):
-                if in_thinking:
-                    print("\n[/Thinking]", flush=True)
-                    in_thinking = False
-                print(f"\n[Tool: {chunk.name}]", flush=True)
-            elif isinstance(chunk, Message) and chunk.role.value == "system":
-                if in_thinking:
-                    print("\n[/Thinking]", flush=True)
-                    in_thinking = False
-                print(f"\n[System] {chunk.content}", flush=True)
+            match chunk:
+                case ThinkingDeltaChunk():
+                    if not in_thinking:
+                        print("\n[Thinking...]", flush=True)
+                        in_thinking = True
+                    # Optionally print thinking (uncomment to see):
+                    # print(chunk.payload.text, end="", flush=True)
+                case TextDeltaChunk(payload=text):
+                    if in_thinking:
+                        print("\n[/Thinking]", flush=True)
+                        in_thinking = False
+                    print(text, end="", flush=True)
+                case ToolCallChunk(payload=tool_call):
+                    if in_thinking:
+                        print("\n[/Thinking]", flush=True)
+                        in_thinking = False
+                    print(f"\n[Tool: {tool_call.name}]", flush=True)
+                case MessageChunk(payload=msg):
+                    if msg.role.value != "system":
+                        continue
+                    if in_thinking:
+                        print("\n[/Thinking]", flush=True)
+                        in_thinking = False
+                    print(f"\n[System] {msg.content}", flush=True)
+                case _:
+                    pass
         if in_thinking:
             print("\n[/Thinking]", flush=True)
         print()  # Final newline

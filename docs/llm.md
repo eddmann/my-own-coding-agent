@@ -28,6 +28,10 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
   - Claude Code emulation when using Anthropic OAuth tokens (`sk-ant-oat...`)
 - **OpenAI‑compatible** (`src/agent/llm/openai_compat.py`)
   - Works with Ollama, OpenRouter, Groq, LM Studio, etc.
+  - Requires an explicit `model` for compatible providers unless configured via provider override.
+  - OpenRouter is available via `provider=openrouter` and accepts OpenRouter model IDs such as `openrouter/free` or `meta-llama/llama-3.3-70b-instruct:free`.
+  - OpenRouter defaults to `https://openrouter.ai/api`; request paths are appended by the OpenAI-compatible transport.
+  - Ollama is available via `provider=ollama` with local base URL default `http://localhost:11434`.
 
 ## Model validation policy
 

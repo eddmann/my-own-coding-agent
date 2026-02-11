@@ -7,7 +7,17 @@ import textwrap
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from textual.widgets import Button, Input, OptionList, RadioButton, RadioSet, Select, Static
+from textual.widgets import (
+    Button,
+    Input,
+    ListView,
+    OptionList,
+    RadioButton,
+    RadioSet,
+    Select,
+    Static,
+    Tree,
+)
 
 from agent.config import Config
 from agent.core.message import Message, ThinkingContent, ToolCall
@@ -17,8 +27,10 @@ from agent.llm.events import DoneEvent, ErrorEvent, PartialMessage, StreamOption
 from agent.llm.stream import AssistantMessageEventStream
 from agent.tui.app import AgentApp
 from agent.tui.chat import MessageWidget, SkillInvocationWidget, ThinkingWidget, ToolWidget
+from agent.tui.context_modal import ContextModal
 from agent.tui.input import PromptInput
 from agent.tui.model_modal import ModelModal
+from agent.tui.session_modal import SessionForkModal, SessionLoadModal, SessionTreeModal
 from tests.test_doubles.llm_provider_fake import LLMProviderFake
 
 if TYPE_CHECKING:
@@ -134,6 +146,11 @@ def prompt_input(app: AgentApp) -> Input:
     input_widget = prompt.query_one("#prompt-inner", Input)
     input_widget.focus()
     return input_widget
+
+
+def render_text(widget: Static) -> str:
+    renderable = widget.render()
+    return getattr(renderable, "plain", str(renderable))
 
 
 async def submit(app: AgentApp, pilot: Any, text: str) -> None:
@@ -505,3 +522,206 @@ async def test_tui_runner_status_displays_model_thinking_and_session(temp_dir):
         assert "gpt-4o" in left
         assert "thinking:low" in left
         assert f"session:{session.metadata.id}" in left
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_context_command_opens_and_closes_modal(temp_dir):
+    skills_dir = temp_dir / "skills"
+    templates_dir = temp_dir / "templates"
+    write_skill(skills_dir, "deploy")
+    write_template(templates_dir, "build.md")
+
+    session = Session.new(temp_dir)
+    session.append(Message.user("hello"))
+    session.append(Message.assistant("world"))
+
+    config = Config(
+        provider="openai",
+        model="gpt-4o",
+        api_key="test",
+        session_dir=temp_dir,
+        skills_dirs=[skills_dir],
+        prompt_template_dirs=[templates_dir],
+    )
+    app = AgentApp(
+        config,
+        provider=LLMProviderFake([], name="openai", model="gpt-4o"),
+        session=session,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "/context ")
+        modal = app.screen
+        assert isinstance(modal, ContextModal)
+
+        summary_text = render_text(modal.query_one("#summary-content", Static))
+        assert "Provider: openai" in summary_text
+        assert "Model: gpt-4o" in summary_text
+        assert "MESSAGES" in summary_text
+        assert "SKILLS" in summary_text
+        assert "TEMPLATES" in summary_text
+
+        messages_text = render_text(modal.query_one("#messages-content", Static))
+        assert "USER" in messages_text
+        assert "ASSISTANT" in messages_text
+        assert "Total:" in messages_text
+
+        system_text = render_text(modal.query_one("#system-content", Static))
+        assert "Total:" in system_text or "(no system prompt)" in system_text
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, ContextModal)
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_load_modal_selects_session_via_public_flow(temp_dir):
+    target = Session.new(temp_dir)
+    target.append(Message.user("target-session"))
+
+    current = Session.new(temp_dir)
+    current.append(Message.user("current-session"))
+
+    config = Config(provider="openai", model="gpt-4o", api_key="test", session_dir=temp_dir)
+    app = AgentApp(config, provider=LLMProviderFake([]), session=current)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "/load ")
+        modal = app.screen
+        assert isinstance(modal, SessionLoadModal)
+
+        list_view = modal.query_one("#session-list", ListView)
+        selected_item = list_view.children[list_view.index]
+        selected_path = getattr(selected_item, "name", None)
+        assert selected_path is not None
+
+        list_view.action_select_cursor()
+        await pilot.pause()
+
+        assert str(app.agent.session.path) == selected_path
+        assert any("loaded session" in msg for msg in system_messages(app))
+        assert not isinstance(app.screen, SessionLoadModal)
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_fork_modal_forks_from_selected_message(temp_dir):
+    session = Session.new(temp_dir)
+    session.append(Message.user("first"))
+    session.append(Message.assistant("second"))
+    session.append(Message.user("third"))
+
+    parent_session_id = session.metadata.id
+    config = Config(provider="openai", model="gpt-4o", api_key="test", session_dir=temp_dir)
+    app = AgentApp(config, provider=LLMProviderFake([]), session=session)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "/fork ")
+        modal = app.screen
+        assert isinstance(modal, SessionForkModal)
+
+        list_view = modal.query_one("#fork-list", ListView)
+        while list_view.index > 0:
+            list_view.action_cursor_up()
+            await pilot.pause()
+        selected_item = list_view.children[list_view.index]
+        selected_message_id = getattr(selected_item, "name", None)
+        assert selected_message_id is not None
+
+        list_view.action_select_cursor()
+        await pilot.pause()
+
+        assert app.agent.session.metadata.parent_session_id == parent_session_id
+        assert len(app.agent.session.messages) == 1
+        assert any(
+            f"forked from {parent_session_id} at {selected_message_id}" in msg
+            for msg in system_messages(app)
+        )
+        assert not isinstance(app.screen, SessionForkModal)
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_tree_modal_linear_list_updates_leaf(temp_dir):
+    session = Session.new(temp_dir)
+    session.append(Message.user("first"))
+    session.append(Message.assistant("second"))
+    session.append(Message.user("third"))
+
+    config = Config(provider="openai", model="gpt-4o", api_key="test", session_dir=temp_dir)
+    app = AgentApp(config, provider=LLMProviderFake([]), session=session)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "/tree ")
+        modal = app.screen
+        assert isinstance(modal, SessionTreeModal)
+
+        list_view = modal.query_one("#linear-list", ListView)
+        while list_view.index > 1:
+            list_view.action_cursor_up()
+            await pilot.pause()
+        selected_item = list_view.children[list_view.index]
+        selected_entry_id = getattr(selected_item, "name", None)
+        assert selected_entry_id is not None
+
+        list_view.action_select_cursor()
+        await pilot.pause()
+
+        assert app.agent.session.leaf_id == selected_entry_id
+        assert len(app.agent.session.messages) == 2
+        assert any(f"branched to {selected_entry_id}" in msg for msg in system_messages(app))
+        assert not isinstance(app.screen, SessionTreeModal)
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_tree_modal_branch_view_updates_leaf(temp_dir):
+    session = Session.new(temp_dir)
+    first = Message.user("first")
+    second = Message.assistant("second")
+    third = Message.user("third")
+    branch = Message.assistant("branch")
+    session.append(first)
+    session.append(second)
+    session.append(third)
+    session.set_leaf(second.id)
+    session.append(branch)
+
+    current_leaf = session.leaf_id
+    config = Config(provider="openai", model="gpt-4o", api_key="test", session_dir=temp_dir)
+    app = AgentApp(config, provider=LLMProviderFake([]), session=session)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "/tree ")
+        modal = app.screen
+        assert isinstance(modal, SessionTreeModal)
+
+        tree = modal.query_one("#tree-view", Tree)
+        tree.action_cursor_parent()
+        await pilot.pause()
+
+        cursor_node = tree.cursor_node
+        assert cursor_node is not None
+        target_entry_id = str(cursor_node.data)
+        if target_entry_id == str(current_leaf):
+            tree.action_cursor_up()
+            await pilot.pause()
+            cursor_node = tree.cursor_node
+            assert cursor_node is not None
+            target_entry_id = str(cursor_node.data)
+
+        assert target_entry_id != str(current_leaf)
+
+        tree.action_select_cursor()
+        await pilot.pause()
+
+        assert app.agent.session.leaf_id == target_entry_id
+        assert any(f"branched to {target_entry_id}" in msg for msg in system_messages(app))
+        assert not isinstance(app.screen, SessionTreeModal)

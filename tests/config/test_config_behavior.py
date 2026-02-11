@@ -132,6 +132,20 @@ def test_config_load_reads_yml_when_other_formats_missing(temp_dir, monkeypatch)
     assert config.temperature == 0.33
 
 
+def test_config_model_defaults_to_none_when_unset(temp_dir, monkeypatch):
+    home = temp_dir / "home"
+    project = temp_dir / "project"
+    home.mkdir()
+    project.mkdir()
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(project)
+
+    config = Config.load()
+
+    assert config.model is None
+
+
 def test_config_invalid_thinking_level_falls_back_to_off(temp_dir, monkeypatch):
     home = temp_dir / "home"
     project = temp_dir / "project"
@@ -173,7 +187,7 @@ def test_config_provider_overrides_defaults_missing_provider_fields(temp_dir, mo
     override = config.providers["openrouter"]
 
     assert override.base_url == "https://api.openai.com"
-    assert override.model == "gpt-4o"
+    assert override.model is None
     assert override.api_key is None
 
 

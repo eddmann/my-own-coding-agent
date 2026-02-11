@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agent.llm.defaults import DEFAULT_OPENAI_MODEL
+
 from .chat import OpenAIChatProvider
 from .common import OpenAIError, uses_responses_api
 from .responses import OpenAIResponsesProvider
@@ -28,7 +30,7 @@ class OpenAIProvider:
 
     api_key: str
     name: str = "openai"
-    model: str = "gpt-4o"
+    model: str = DEFAULT_OPENAI_MODEL
     temperature: float = 0.7
     max_tokens: int = 4096
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)

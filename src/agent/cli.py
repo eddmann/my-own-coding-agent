@@ -453,10 +453,11 @@ def sessions(
 def config_show() -> None:
     """Show current configuration."""
     config = Config.load()
+    model_display = config.model or "[provider default]"
 
     typer.echo("Current configuration:")
     typer.echo(f"  Provider: {config.provider}")
-    typer.echo(f"  Model: {config.model}")
+    typer.echo(f"  Model: {model_display}")
     typer.echo(f"  API Key: {'[set]' if config.api_key else '[not set]'}")
     typer.echo(f"  Base URL: {config.base_url or '[default]'}")
     typer.echo(f"  Context Tokens: {config.context_max_tokens}")

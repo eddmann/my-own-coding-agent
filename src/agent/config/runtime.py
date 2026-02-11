@@ -18,7 +18,7 @@ class ProviderConfig:
     """Top-level provider override values from user config."""
 
     base_url: str
-    model: str
+    model: str | None = None
     api_key: str | None = None
 
 
@@ -27,7 +27,7 @@ class Config:
     """Resolved app config (delivery concern)."""
 
     provider: str = "openai"
-    model: str = "gpt-4o"
+    model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
     context_max_tokens: int = 128000
@@ -149,7 +149,7 @@ class Config:
             for name, prov_data in data["providers"].items():
                 providers[name] = ProviderConfig(
                     base_url=prov_data.get("base_url", "https://api.openai.com"),
-                    model=prov_data.get("model", "gpt-4o"),
+                    model=prov_data.get("model"),
                     api_key=prov_data.get("api_key"),
                 )
 
@@ -176,7 +176,7 @@ class Config:
 
         return cls(
             provider=data.get("provider", "openai"),
-            model=data.get("model", "gpt-4o"),
+            model=data.get("model"),
             api_key=data.get("api_key"),
             base_url=data.get("base_url"),
             context_max_tokens=context_max_tokens,

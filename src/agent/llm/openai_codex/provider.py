@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import tiktoken
 
+from agent.llm.defaults import DEFAULT_OPENAI_CODEX_MODEL
 from agent.llm.events import (
     AssistantMetadataEvent,
     Cost,
@@ -185,7 +186,7 @@ class OpenAICodexProvider:
 
     api_key: str
     name: str = "openai-codex"
-    model: str = "gpt-5-codex"
+    model: str = DEFAULT_OPENAI_CODEX_MODEL
     temperature: float = 0.7
     max_tokens: int = 8192
     base_url: str = OPENAI_CODEX_BASE_URL

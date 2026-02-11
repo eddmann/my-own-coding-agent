@@ -25,10 +25,10 @@ def test_openai_codex_provider_prefers_oauth_env_and_default_model(monkeypatch):
     monkeypatch.setenv("OPENAI_CODEX_OAUTH_TOKEN", oauth_token)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    config = Config(provider="openai-codex", model="gpt-4o")
+    config = Config(provider="openai-codex", model=None)
     provider_config = resolve_from_config(config)
 
-    assert provider_config.model == "gpt-5-codex"
+    assert provider_config.model == "gpt-5.3-codex"
     assert provider_config.api_key == oauth_token
 
 
@@ -42,7 +42,7 @@ def test_openai_codex_provider_does_not_use_openai_api_key(monkeypatch):
     assert provider_config.api_key is None
 
 
-def test_resolve_provider_config_uses_override_values_for_anthropic_fallback_model():
+def test_resolve_provider_config_uses_override_values_for_anthropic_when_model_unset():
     override = SimpleNamespace(
         base_url="https://anthropic.example",
         model="claude-override",
@@ -51,7 +51,7 @@ def test_resolve_provider_config_uses_override_values_for_anthropic_fallback_mod
 
     provider_config = resolve_provider_config(
         provider="anthropic",
-        model="gpt-4o",
+        model=None,
         api_key=None,
         base_url=None,
         provider_overrides={"anthropic": override},
@@ -60,6 +60,24 @@ def test_resolve_provider_config_uses_override_values_for_anthropic_fallback_mod
     assert provider_config.base_url == "https://anthropic.example"
     assert provider_config.model == "claude-override"
     assert provider_config.api_key == "sk-ant-override"
+
+
+def test_resolve_provider_config_prefers_explicit_model_over_provider_override():
+    override = SimpleNamespace(
+        base_url="https://anthropic.example",
+        model="claude-override",
+        api_key="sk-ant-override",
+    )
+
+    provider_config = resolve_provider_config(
+        provider="anthropic",
+        model="claude-sonnet-4-5",
+        api_key=None,
+        base_url=None,
+        provider_overrides={"anthropic": override},
+    )
+
+    assert provider_config.model == "claude-sonnet-4-5"
 
 
 def test_create_provider_rejects_invalid_provider_model_pair():
@@ -73,6 +91,52 @@ def test_create_provider_rejects_invalid_provider_model_pair():
             max_output_tokens=4096,
             provider_overrides=None,
         )
+
+
+def test_create_provider_rejects_invalid_explicit_model_even_with_valid_override():
+    override = SimpleNamespace(
+        base_url="https://api.openai.com",
+        model="gpt-4o",
+        api_key="sk-test",
+    )
+
+    with pytest.raises(ValueError, match="not valid for provider"):
+        create_provider(
+            provider="openai",
+            model="claude-sonnet-4-5",
+            api_key=None,
+            base_url=None,
+            temperature=0.7,
+            max_output_tokens=4096,
+            provider_overrides={"openai": override},
+        )
+
+
+def test_create_provider_uses_provider_default_model_when_unset():
+    provider = create_provider(
+        provider="anthropic",
+        model=None,
+        api_key="sk-ant-test",
+        base_url=None,
+        temperature=0.7,
+        max_output_tokens=4096,
+        provider_overrides=None,
+    )
+
+    assert provider.name == "anthropic"
+    assert provider.model == "claude-opus-4-6"
+
+
+def test_resolve_provider_config_uses_openai_default_model_when_unset():
+    provider_config = resolve_provider_config(
+        provider="openai",
+        model=None,
+        api_key="sk-test",
+        base_url=None,
+        provider_overrides=None,
+    )
+
+    assert provider_config.model == "gpt-5.2"
 
 
 def test_create_provider_builds_openai_provider_instance():
@@ -116,7 +180,7 @@ def test_resolve_provider_config_prefers_provider_specific_env_key(monkeypatch):
 
     provider_config = resolve_provider_config(
         provider="openai",
-        model="gpt-4o",
+        model=None,
         api_key=None,
         base_url=None,
         provider_overrides=None,
@@ -131,7 +195,7 @@ def test_resolve_provider_config_openai_ignores_anthropic_shaped_agent_api_key(m
 
     provider_config = resolve_provider_config(
         provider="openai",
-        model="gpt-4o",
+        model=None,
         api_key="sk-openai-default",
         base_url=None,
         provider_overrides=None,
@@ -146,7 +210,7 @@ def test_resolve_provider_config_anthropic_rejects_non_anthropic_keys(monkeypatc
 
     provider_config = resolve_provider_config(
         provider="anthropic",
-        model="claude-sonnet-4-5",
+        model=None,
         api_key="sk-openai-default",
         base_url=None,
         provider_overrides=None,
@@ -161,7 +225,7 @@ def test_resolve_provider_config_openai_codex_uses_agent_oauth_token(monkeypatch
 
     provider_config = resolve_provider_config(
         provider="openai-codex",
-        model="gpt-5-codex",
+        model=None,
         api_key=None,
         base_url=None,
         provider_overrides=None,
@@ -197,7 +261,8 @@ def test_resolve_provider_config_uses_default_for_ollama():
         provider_overrides=None,
     )
 
-    assert provider_config.base_url == "http://localhost:11434/v1"
+    assert provider_config.base_url == "http://localhost:11434"
+    assert provider_config.model == "llama3.2"
     assert provider_config.api_key == "ollama"
 
 
@@ -212,3 +277,16 @@ def test_resolve_provider_config_unknown_provider_falls_back_to_openai_base_url(
 
     assert provider_config.base_url == "https://api.openai.com"
     assert provider_config.model == "my-model"
+
+
+def test_create_provider_requires_model_for_openai_compatible_when_unset():
+    with pytest.raises(ValueError, match="Model is required for provider 'openrouter'"):
+        create_provider(
+            provider="openrouter",
+            model=None,
+            api_key="sk-openrouter",
+            base_url=None,
+            temperature=0.7,
+            max_output_tokens=4096,
+            provider_overrides=None,
+        )

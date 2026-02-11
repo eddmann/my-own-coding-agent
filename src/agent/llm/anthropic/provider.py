@@ -25,6 +25,7 @@ import httpx
 
 from agent.core.message import Message, Role
 from agent.core.settings import THINKING_BUDGETS, ThinkingLevel
+from agent.llm.defaults import DEFAULT_ANTHROPIC_MODEL
 from agent.llm.events import (
     AssistantMetadataEvent,
     Cost,
@@ -195,7 +196,7 @@ class AnthropicProvider:
 
     api_key: str
     name: str = "anthropic"
-    model: str = "claude-sonnet-4-20250514"
+    model: str = DEFAULT_ANTHROPIC_MODEL
     max_tokens: int = 8192
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     oauth_path: Path | None = None

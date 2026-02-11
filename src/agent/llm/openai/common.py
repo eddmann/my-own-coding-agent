@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import httpx
 import tiktoken
 
+from agent.llm.defaults import DEFAULT_OPENAI_MODEL
 from agent.llm.events import Cost, StopReason, Usage
 from agent.llm.pricing import get_pricing
 
@@ -173,7 +174,7 @@ class OpenAIBase:
     """Shared base for OpenAI providers."""
 
     api_key: str
-    model: str = "gpt-4o"
+    model: str = DEFAULT_OPENAI_MODEL
     temperature: float = 0.7
     max_tokens: int = 4096
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)

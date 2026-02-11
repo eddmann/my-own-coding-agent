@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from agent.llm.defaults import default_model_for_provider
+
 if TYPE_CHECKING:
     from agent.llm.provider import LLMProvider
 
@@ -15,7 +17,7 @@ class ProviderOverride(Protocol):
     """Shape for provider override values supplied by delivery config."""
 
     base_url: str
-    model: str
+    model: str | None
     api_key: str | None
 
 
@@ -27,7 +29,7 @@ class ResolvedProviderConfig:
     """Resolved settings for constructing a provider implementation."""
 
     base_url: str
-    model: str
+    model: str | None
     api_key: str | None = None
 
 
@@ -89,16 +91,18 @@ def _resolve_api_key(default: str | None, provider: str) -> str | None:
     return default
 
 
-def _resolve_model(provider: str, model: str, fallback_model: str) -> str:
-    if provider in {"anthropic", "openai-codex"} and model == "gpt-4o":
+def _resolve_model(provider: str, model: str | None, fallback_model: str | None) -> str | None:
+    if model is not None:
+        return model
+    if fallback_model is not None:
         return fallback_model
-    return model
+    return default_model_for_provider(provider)
 
 
 def resolve_provider_config(
     *,
     provider: str,
-    model: str,
+    model: str | None,
     api_key: str | None,
     base_url: str | None,
     provider_overrides: ProviderOverrides | None = None,
@@ -115,32 +119,32 @@ def resolve_provider_config(
     default_configs = {
         "openai": ResolvedProviderConfig(
             base_url="https://api.openai.com",
-            model=model,
+            model=default_model_for_provider("openai"),
             api_key=api_key,
         ),
         "openai-codex": ResolvedProviderConfig(
             base_url="https://chatgpt.com/backend-api",
-            model=model if model != "gpt-4o" else "gpt-5-codex",
+            model=default_model_for_provider("openai-codex"),
             api_key=api_key,
         ),
         "anthropic": ResolvedProviderConfig(
             base_url="https://api.anthropic.com",
-            model=model if model != "gpt-4o" else "claude-sonnet-4-20250514",
+            model=default_model_for_provider("anthropic"),
             api_key=api_key,
         ),
         "ollama": ResolvedProviderConfig(
-            base_url="http://localhost:11434/v1",
-            model=model,
+            base_url="http://localhost:11434",
+            model=None,
             api_key="ollama",
         ),
         "openrouter": ResolvedProviderConfig(
-            base_url="https://openrouter.ai/api/v1",
-            model=model,
+            base_url="https://openrouter.ai/api",
+            model=None,
             api_key=api_key,
         ),
         "groq": ResolvedProviderConfig(
             base_url="https://api.groq.com/openai/v1",
-            model=model,
+            model=None,
             api_key=api_key,
         ),
     }
@@ -155,7 +159,7 @@ def resolve_provider_config(
 
     return ResolvedProviderConfig(
         base_url=base_url or "https://api.openai.com",
-        model=model,
+        model=_resolve_model(provider, model, None),
         api_key=_resolve_api_key(api_key, provider),
     )
 
@@ -163,7 +167,7 @@ def resolve_provider_config(
 def create_provider(
     *,
     provider: str,
-    model: str,
+    model: str | None,
     api_key: str | None,
     base_url: str | None,
     temperature: float,
@@ -173,9 +177,6 @@ def create_provider(
     """Create a concrete provider instance from flat provider bootstrap params."""
     from agent.llm.models import is_model_valid_for_provider
 
-    if not is_model_valid_for_provider(model, provider):
-        raise ValueError(f"Model '{model}' is not valid for provider '{provider}'")
-
     prov_config = resolve_provider_config(
         provider=provider,
         model=model,
@@ -183,6 +184,14 @@ def create_provider(
         base_url=base_url,
         provider_overrides=provider_overrides,
     )
+    if prov_config.model is None:
+        raise ValueError(
+            f"Model is required for provider '{provider}'. "
+            "Set --model or configure provider-specific model override."
+        )
+
+    if not is_model_valid_for_provider(prov_config.model, provider):
+        raise ValueError(f"Model '{prov_config.model}' is not valid for provider '{provider}'")
 
     if provider == "anthropic":
         from agent.llm.anthropic import AnthropicProvider

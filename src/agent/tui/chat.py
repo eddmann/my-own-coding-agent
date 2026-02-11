@@ -219,10 +219,11 @@ class ThinkingWidget(Static):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._content = ""
+        self._collapsed = False
         self.add_class("thinking-widget")
 
     def on_mount(self) -> None:
-        self.border_title = "thinking"
+        self.border_title = "Thinking"
         self._update_display()
 
     def append_text(self, text: str) -> None:
@@ -237,7 +238,39 @@ class ThinkingWidget(Static):
     def _update_display(self) -> None:
         """Update the display with current content."""
         display = truncate(self._content, MAX_DISPLAY_CHARS, "...[truncated]")
+        if self._collapsed and display.strip():
+            self.add_class("thinking-collapsed")
+            self.update("[dim]▶ click to expand[/]")
+            return
+
+        self.remove_class("thinking-collapsed")
+        if not display.strip():
+            self.update(Text("thinking..."))
+            return
         self.update(Text(display))
+
+    def toggle(self) -> None:
+        """Toggle collapsed state."""
+        if self._collapsed:
+            self.expand_output()
+        else:
+            self.collapse_output()
+
+    def on_click(self) -> None:
+        """Handle click to toggle collapsed state."""
+        self.toggle()
+
+    def collapse_output(self) -> None:
+        """Collapse the thinking output to show only the title."""
+        if not self._collapsed and self._content.strip():
+            self._collapsed = True
+            self._update_display()
+
+    def expand_output(self) -> None:
+        """Expand to show full thinking content."""
+        if self._collapsed and self._content.strip():
+            self._collapsed = False
+            self._update_display()
 
 
 class WaitingIndicator(Static):
@@ -341,6 +374,7 @@ class ChatView(ScrollableContainer):
         """Append text to the current assistant message."""
         self._hide_waiting()
         self.collapse_previous_tools()
+        self.collapse_previous_thinking()
         # Create message if needed (e.g., after tool results)
         if not self._current_message:
             self._current_message = MessageWidget("assistant", "")
@@ -357,6 +391,7 @@ class ChatView(ScrollableContainer):
         """Start a tool call widget (before arguments are ready)."""
         self._hide_waiting()
         self.collapse_previous_tools()
+        self.collapse_previous_thinking()
         widget = ToolWidget(tool_id, name)
         self._tool_widgets[tool_id] = widget
         await self.mount(widget)
@@ -402,12 +437,22 @@ class ChatView(ScrollableContainer):
             if isinstance(child, ToolWidget) and child.has_result():
                 child.collapse_output()
 
+    def collapse_previous_thinking(self) -> None:
+        """Collapse completed thinking widgets."""
+        for child in self.children:
+            if isinstance(child, ThinkingWidget) and child is not self._current_thinking:
+                child.collapse_output()
+
     async def start_thinking(self) -> None:
         """Start displaying thinking content."""
         self._hide_waiting()
         if not self._current_thinking:
+            self.collapse_previous_thinking()
             self._current_thinking = ThinkingWidget()
-            await self.mount(self._current_thinking)
+            if self._current_message and self._current_message in self.children:
+                await self.mount(self._current_thinking, before=self._current_message)
+            else:
+                await self.mount(self._current_thinking)
             self.scroll_to_bottom()
 
     def append_to_thinking(self, text: str) -> None:

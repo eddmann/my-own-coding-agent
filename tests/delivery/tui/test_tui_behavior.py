@@ -23,7 +23,15 @@ from agent.config import Config
 from agent.core.message import Message, ThinkingContent, ToolCall
 from agent.core.session import Session
 from agent.core.settings import ThinkingLevel
-from agent.llm.events import DoneEvent, ErrorEvent, PartialMessage, StreamOptions, TextStartEvent
+from agent.llm.events import (
+    DoneEvent,
+    ErrorEvent,
+    PartialMessage,
+    StreamOptions,
+    TextDeltaEvent,
+    TextStartEvent,
+    ThinkingDeltaEvent,
+)
 from agent.llm.stream import AssistantMessageEventStream
 from agent.tui.app import AgentApp
 from agent.tui.chat import MessageWidget, SkillInvocationWidget, ThinkingWidget, ToolWidget
@@ -391,6 +399,81 @@ async def test_tui_runner_rehydrates_tool_and_thinking_widgets(temp_dir):
         assert tool_widgets
         assert thinking_widgets
         assert any("Here you go" in w.text_content() for w in assistant_widgets)
+
+        thinking_widget = thinking_widgets[0]
+        thinking_widget.toggle()
+        await pilot.pause()
+        assert "thinking-collapsed" in thinking_widget.classes
+        assert "click to expand" in render_text(thinking_widget)
+
+        thinking_widget.toggle()
+        await pilot.pause()
+        assert "thinking-collapsed" not in thinking_widget.classes
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_keeps_thinking_above_assistant_when_thinking_arrives_late(temp_dir):
+    config = Config(provider="openai", model="gpt-4o", api_key="test", session_dir=temp_dir)
+    provider = LLMProviderFake(
+        [
+            [
+                TextStartEvent(content_index=0),
+                TextDeltaEvent(content_index=0, delta="Answer first."),
+                ThinkingDeltaEvent(content_index=1, delta="Late reasoning."),
+                DoneEvent(message=PartialMessage()),
+            ]
+        ],
+        name="openai",
+        model="gpt-4o",
+    )
+    app = AgentApp(config, provider=provider)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "trigger late thinking")
+        await wait_for_idle(app, pilot)
+
+        chat = app.query_one("#chat-view")
+        children = list(chat.children)
+        thinking_widgets = list(chat.query(ThinkingWidget))
+        assistant_widgets = [w for w in chat.query(MessageWidget) if w.role == "assistant"]
+
+        assert thinking_widgets
+        assert assistant_widgets
+        assert children.index(thinking_widgets[-1]) < children.index(assistant_widgets[-1])
+
+
+@pytest.mark.asyncio
+async def test_tui_runner_auto_collapses_previous_thinking_on_new_activity(temp_dir):
+    config = Config(provider="openai", model="gpt-4o", api_key="test", session_dir=temp_dir)
+    provider = LLMProviderFake(
+        [
+            [
+                ThinkingDeltaEvent(content_index=0, delta="First reasoning block."),
+                TextStartEvent(content_index=1),
+                TextDeltaEvent(content_index=1, delta="Answer text."),
+                ThinkingDeltaEvent(content_index=2, delta="Second reasoning block."),
+                DoneEvent(message=PartialMessage()),
+            ]
+        ],
+        name="openai",
+        model="gpt-4o",
+    )
+    app = AgentApp(config, provider=provider)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await submit(app, pilot, "trigger multi thinking")
+        await wait_for_idle(app, pilot)
+
+        chat = app.query_one("#chat-view")
+        thinking_widgets = list(chat.query(ThinkingWidget))
+
+        assert len(thinking_widgets) == 2
+        assert "thinking-collapsed" in thinking_widgets[0].classes
+        assert "thinking-collapsed" not in thinking_widgets[1].classes
 
 
 @pytest.mark.asyncio

@@ -78,11 +78,21 @@ Screen {
 .thinking-widget {
     margin: 1 2;
     padding: 1 2;
-    background: $surface;
-    border: dashed $warning;
+    background: $panel;
+    border: round $warning;
     border-title-color: $warning;
-    border-title-style: italic;
-    color: $foreground-muted;
+    border-title-style: bold;
+    color: $foreground;
+}
+
+.thinking-widget.thinking-collapsed {
+    height: auto;
+    min-height: 1;
+    padding: 0 2;
+}
+
+.thinking-widget.thinking-collapsed:hover {
+    background: $surface;
 }
 
 #input-container {

@@ -122,6 +122,12 @@ MODELS: dict[str, ModelInfo] = {
         reasoning=True,
         max_output_tokens=64000,
     ),
+    "claude-sonnet-4-6": ModelInfo(
+        id="claude-sonnet-4-6",
+        provider="anthropic",
+        reasoning=True,
+        max_output_tokens=128000,
+    ),
     # Aliases
     "claude-sonnet-4": ModelInfo(
         id="claude-sonnet-4",
@@ -343,16 +349,17 @@ MODELS: dict[str, ModelInfo] = {
         reasoning=True,
         max_output_tokens=65536,
     ),
-    # GPT-5.3 family - HAS reasoning + xhigh
-    "gpt-5.3": ModelInfo(
-        id="gpt-5.3",
+    # GPT-5.3 codex family - HAS reasoning + xhigh
+    "gpt-5.3-codex": ModelInfo(
+        id="gpt-5.3-codex",
         provider="openai",
         reasoning=True,
         xhigh=True,  # Supports xhigh
         max_output_tokens=128000,
     ),
-    "gpt-5.3-codex": ModelInfo(
-        id="gpt-5.3-codex",
+    # GPT-5.4 family - HAS reasoning + xhigh
+    "gpt-5.4": ModelInfo(
+        id="gpt-5.4",
         provider="openai",
         reasoning=True,
         xhigh=True,  # Supports xhigh
@@ -432,7 +439,13 @@ MODELS: dict[str, ModelInfo] = {
 
 
 # Models that support xhigh thinking level.
-XHIGH_MODELS = {"gpt-5.1-codex-max", "gpt-5.2", "gpt-5.2-codex", "gpt-5.3", "gpt-5.3-codex"}
+XHIGH_MODELS = {
+    "gpt-5.1-codex-max",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+    "gpt-5.4",
+}
 
 
 def resolve_capability_provider(provider: str | None) -> Provider | None:
@@ -460,6 +473,7 @@ def _normalize_capability_model_id(model_id: str) -> tuple[str, str | None]:
 
     # Normalize common alias variants to registry keys.
     normalized = normalized.replace("claude-opus-4.6", "claude-opus-4-6")
+    normalized = normalized.replace("claude-sonnet-4.6", "claude-sonnet-4-6")
     return normalized, prefix
 
 

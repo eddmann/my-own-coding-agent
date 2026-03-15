@@ -96,7 +96,8 @@ def get_model_capabilities(model: str) -> ModelCapabilities:
 
 def uses_responses_api(model: str) -> bool:
     """Return True if the model should use the Responses API."""
-    return "codex" in model.lower()
+    model_lower = model.lower()
+    return model_lower.startswith("gpt-5") or "codex" in model_lower
 
 
 def map_reasoning_effort(model: str, thinking_level: str | None) -> str | None:

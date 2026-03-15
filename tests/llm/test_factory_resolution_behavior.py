@@ -28,7 +28,7 @@ def test_openai_codex_provider_prefers_oauth_env_and_default_model(monkeypatch):
     config = Config(provider="openai-codex", model=None)
     provider_config = resolve_from_config(config)
 
-    assert provider_config.model == "gpt-5.3-codex"
+    assert provider_config.model == "gpt-5.4"
     assert provider_config.api_key == oauth_token
 
 
@@ -136,7 +136,7 @@ def test_resolve_provider_config_uses_openai_default_model_when_unset():
         provider_overrides=None,
     )
 
-    assert provider_config.model == "gpt-5.2"
+    assert provider_config.model == "gpt-5.4"
 
 
 def test_create_provider_builds_openai_provider_instance():

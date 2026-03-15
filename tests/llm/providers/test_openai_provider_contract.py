@@ -74,28 +74,41 @@ async def test_openai_chat_payload_includes_temperature_and_streams_text() -> No
 
 
 @pytest.mark.asyncio
-async def test_openai_chat_payload_omits_temperature_for_gpt5() -> None:
+async def test_openai_gpt5_routes_to_responses_and_omits_temperature() -> None:
     captured = SimpleNamespace(json=None)
-    prompt_tokens = 1
-    completion_tokens = 1
+    input_tokens = 1
+    output_tokens = 1
     cached_tokens = 0
-    reasoning_tokens = 0
     events = [
-        {"choices": [{"delta": {"content": "Yo"}}]},
         {
-            "choices": [{"delta": {}, "finish_reason": "stop"}],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "prompt_tokens_details": {"cached_tokens": cached_tokens},
-                "completion_tokens_details": {"reasoning_tokens": reasoning_tokens},
+            "type": "response.output_item.added",
+            "item": {"type": "message", "id": "msg_1"},
+        },
+        {"type": "response.output_text.delta", "delta": "Yo"},
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "message",
+                "id": "msg_1",
+                "content": [{"type": "output_text", "text": "Yo"}],
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "input_tokens_details": {"cached_tokens": cached_tokens},
+                },
             },
         },
     ]
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.json = json.loads(request.content.decode("utf-8"))
-        assert request.url.path == "/v1/chat/completions"
+        assert request.url.path == "/v1/responses"
         return httpx.Response(200, content=_sse_payload(events))
 
     transport = httpx.MockTransport(handler)
@@ -107,13 +120,89 @@ async def test_openai_chat_payload_omits_temperature_for_gpt5() -> None:
     )
 
     stream = provider.stream([Message.user("hi")])
-    await stream.result()
+    result = await stream.result()
 
     await provider.client.aclose()
 
     assert captured.json is not None
     assert "temperature" not in captured.json
-    assert "max_completion_tokens" in captured.json
+    assert "max_output_tokens" in captured.json
+    assert "input" in captured.json
+
+    text = next(block for block in result.content if isinstance(block, TextBlock))
+    assert text.text == "Yo"
+    assert result.usage.input == input_tokens
+    assert result.usage.output == output_tokens
+
+
+@pytest.mark.asyncio
+async def test_openai_gpt54_with_tools_and_thinking_uses_responses() -> None:
+    captured = SimpleNamespace(json=None)
+    events = [
+        {
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "input_tokens_details": {"cached_tokens": 0},
+                },
+            },
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.json = json.loads(request.content.decode("utf-8"))
+        assert request.url.path == "/v1/responses"
+        return httpx.Response(200, content=_sse_payload(events))
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(base_url=OPENAI_API_BASE_URL, transport=transport)
+    provider = OpenAIProvider(
+        api_key="sk-test",
+        model="gpt-5.4",
+        http_client=client,
+    )
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            },
+        }
+    ]
+
+    stream = provider.stream(
+        [Message.user("hi")],
+        tools=tools,
+        options=StreamOptions(thinking_level="high"),
+    )
+    await stream.result()
+    await provider.client.aclose()
+
+    assert captured.json is not None
+    assert captured.json.get("reasoning", {}).get("effort") == "high"
+    assert captured.json.get("tools") == [
+        {
+            "type": "function",
+            "name": "read_file",
+            "description": "Read a file",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            "strict": False,
+        }
+    ]
 
 
 @pytest.mark.asyncio

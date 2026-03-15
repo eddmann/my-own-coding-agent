@@ -5,7 +5,7 @@
 provider = "openai"
 
 # Default model
-model = "gpt-4o"
+model = "gpt-5.4"
 
 # Maximum tokens for context window
 context_max_tokens = 128000
@@ -27,7 +27,7 @@ temperature = 0.7
 
 [providers.openai]
 base_url = "https://api.openai.com"
-model = "gpt-4o"
+model = "gpt-5.4"
 # api_key set via OPENAI_API_KEY environment variable
 
 [providers.ollama]
@@ -37,7 +37,7 @@ api_key = "ollama"
 
 [providers.openrouter]
 base_url = "https://openrouter.ai/api/v1"
-model = "anthropic/claude-3.5-sonnet"
+model = "anthropic/claude-sonnet-4.6"
 # api_key set via OPENROUTER_API_KEY environment variable
 
 [providers.groq]

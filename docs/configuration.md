@@ -20,7 +20,12 @@ Configuration is layered and merged in this order (lowest → highest):
 - `skills_dirs`, `prompt_template_dirs`, `extensions`
 - `custom_system_prompt`, `append_system_prompt`
 
-`model` can be omitted for native providers (`openai`, `anthropic`, `openai-codex`) because they have built-in defaults. For OpenAI-compatible providers (`ollama`, `openrouter`, `groq`, custom), set `model` explicitly unless you configured a provider-specific override model.
+`model` can be omitted for native providers (`openai`, `anthropic`, `openai-codex`) because they have built-in defaults:
+- `openai` → `gpt-5.4`
+- `anthropic` → `claude-opus-4-6`
+- `openai-codex` → `gpt-5.4`
+
+For OpenAI-compatible providers (`ollama`, `openrouter`, `groq`, custom), set `model` explicitly unless you configured a provider-specific override model.
 
 ## Authentication
 

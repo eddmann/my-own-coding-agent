@@ -29,6 +29,8 @@ ANTHROPIC_PRICING: dict[str, ModelPricing] = {
     "claude-opus-4": ModelPricing(15.0, 75.0, 1.5, 18.75),
     # Sonnet 4.5
     "claude-sonnet-4-5": ModelPricing(3.0, 15.0, 0.3, 3.75),
+    # Sonnet 4.6
+    "claude-sonnet-4-6": ModelPricing(3.0, 15.0, 0.3, 3.75),
     # Sonnet 4
     "claude-sonnet-4": ModelPricing(3.0, 15.0, 0.3, 3.75),
     # Haiku 4.5
@@ -41,8 +43,8 @@ ANTHROPIC_PRICING: dict[str, ModelPricing] = {
 OPENAI_PRICING: dict[str, ModelPricing] = {
     "gpt-4o": ModelPricing(2.5, 10.0, 1.25, 2.5),
     "gpt-4o-mini": ModelPricing(0.15, 0.6, 0.075, 0.15),
-    "gpt-5.3": ModelPricing(1.75, 14.0, 0.175, 0.0),
     "gpt-5.3-codex": ModelPricing(1.75, 14.0, 0.175, 0.0),
+    "gpt-5.4": ModelPricing(2.5, 15.0, 0.25, 0.0),
     "o1": ModelPricing(15.0, 60.0, 7.5, 15.0),
     "o3": ModelPricing(2.0, 8.0, 1.0, 2.0),
     "o3-mini": ModelPricing(1.1, 4.4, 0.55, 1.1),

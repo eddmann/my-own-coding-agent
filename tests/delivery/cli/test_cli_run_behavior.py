@@ -73,7 +73,7 @@ def test_cli_preserves_prompt_and_context_fields(temp_dir, monkeypatch):
             str(ext_path),
             "/dump-config",
             "-m",
-            "gpt-4o",
+            "gpt-5.4",
         ],
     )
 

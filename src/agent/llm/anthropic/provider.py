@@ -173,19 +173,26 @@ def _map_stop_reason(anthropic_reason: str | None) -> StopReason:
 
 
 def _supports_adaptive_thinking(model_id: str) -> bool:
-    """Return whether model uses Anthropic adaptive thinking (Opus 4.6+)."""
+    """Return whether model uses Anthropic adaptive thinking."""
+    model_lower = model_id.lower()
+    adaptive_models = ("opus-4-6", "opus-4.6", "sonnet-4-6", "sonnet-4.6")
+    return any(token in model_lower for token in adaptive_models)
+
+
+def _supports_adaptive_max_effort(model_id: str) -> bool:
+    """Return whether adaptive thinking model supports Anthropic's max effort."""
     model_lower = model_id.lower()
     return "opus-4-6" in model_lower or "opus-4.6" in model_lower
 
 
-def _map_thinking_level_to_effort(level: ThinkingLevel) -> str:
+def _map_thinking_level_to_effort(model_id: str, level: ThinkingLevel) -> str:
     """Map local thinking levels to Anthropic adaptive effort values."""
     mapping = {
         ThinkingLevel.MINIMAL: "low",
         ThinkingLevel.LOW: "low",
         ThinkingLevel.MEDIUM: "medium",
         ThinkingLevel.HIGH: "high",
-        ThinkingLevel.XHIGH: "max",
+        ThinkingLevel.XHIGH: "max" if _supports_adaptive_max_effort(model_id) else "high",
     }
     return mapping.get(level, "high")
 
@@ -372,9 +379,11 @@ class AnthropicProvider:
 
         if thinking_level and thinking_level != ThinkingLevel.OFF:
             if _supports_adaptive_thinking(self.model):
-                # Opus 4.6+ uses adaptive thinking with explicit effort levels.
+                # Claude 4.6 models use adaptive thinking with explicit effort levels.
                 payload["thinking"] = {"type": "adaptive"}
-                payload["output_config"] = {"effort": _map_thinking_level_to_effort(thinking_level)}
+                payload["output_config"] = {
+                    "effort": _map_thinking_level_to_effort(self.model, thinking_level)
+                }
             else:
                 budget = THINKING_BUDGETS.get(thinking_level, 8192)
                 payload["thinking"] = {

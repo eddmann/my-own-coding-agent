@@ -1,8 +1,8 @@
 """Shared default model configuration for providers."""
 
-DEFAULT_OPENAI_MODEL = "gpt-5.2"
+DEFAULT_OPENAI_MODEL = "gpt-5.4"
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6"
-DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.3-codex"
+DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.4"
 
 DEFAULT_MODEL_BY_PROVIDER = {
     "openai": DEFAULT_OPENAI_MODEL,

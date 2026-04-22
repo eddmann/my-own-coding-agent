@@ -10,8 +10,8 @@ Configuration is layered and merged in this order (lowest → highest):
 ## Runtime split
 
 - `Config` (`src/agent/config/runtime.py`) is a delivery/bootstrap concern.
-- Core runtime uses `AgentSettings` (`src/agent/core/settings.py`), projected from config via `Config.to_agent_settings()`.
-- Provider construction and provider/model resolution are handled in `src/agent/llm/factory.py`, not in core.
+- The runtime uses `AgentSettings` (`src/agent/runtime/settings.py`), projected from config via `Config.to_agent_settings()`.
+- Provider construction and provider/model resolution are handled in `src/agent/llm/factory.py`, not in the runtime layer.
 
 ## Common settings
 
@@ -19,6 +19,7 @@ Configuration is layered and merged in this order (lowest → highest):
 - `context_max_tokens`, `max_output_tokens`, `temperature`
 - `skills_dirs`, `prompt_template_dirs`, `extensions`
 - `custom_system_prompt`, `append_system_prompt`
+- `providers.<name>.base_url`, `providers.<name>.model`, `providers.<name>.api_key`
 
 `model` can be omitted for native providers (`openai`, `anthropic`, `openai-codex`) because they have built-in defaults:
 - `openai` → `gpt-5.4`
@@ -33,7 +34,7 @@ OpenAI API keys are read from `OPENAI_API_KEY`. Anthropic API keys are read from
 
 OAuth credentials are stored per provider: Anthropic in `~/.agent/anthropic-oauth.json`, and OpenAI Codex in `~/.agent/openai-codex-oauth.json`.
 
-Use `agent auth login anthropic` or `agent auth login openai-codex` to authenticate, `agent auth logout anthropic` or `agent auth logout openai-codex` to clear credentials, and `agent auth status` to inspect current OAuth state.
+Use `agent auth login anthropic` or `agent auth login openai-codex` to authenticate, `agent auth logout anthropic` or `agent auth logout openai-codex` to clear credentials, and `agent auth status` to inspect OAuth state.
 
 Resolution behavior: Anthropic OAuth is used when no Anthropic API key is configured. OpenAI Codex uses OAuth credentials by default, or `OPENAI_CODEX_OAUTH_TOKEN` if explicitly set.
 
@@ -84,3 +85,7 @@ Only set `AGENT_BASE_URL` if your Ollama endpoint is different.
 ## Context files
 
 `AGENTS.md` and `CLAUDE.md` are auto‑loaded from the project and its ancestors to seed the system prompt.
+
+## Extension config snapshot
+
+Extensions do not receive the raw `Config` object, but `ctx.config` exposes a safe snapshot of the resolved runtime configuration. That includes the resolved provider/model selection, prompt/context directories, and provider bootstrap values needed for extension-managed child agents.

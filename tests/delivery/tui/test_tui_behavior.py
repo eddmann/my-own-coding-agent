@@ -20,9 +20,6 @@ from textual.widgets import (
 )
 
 from agent.config import Config
-from agent.core.message import Message, ThinkingContent, ToolCall
-from agent.core.session import Session
-from agent.core.settings import ThinkingLevel
 from agent.llm.events import (
     DoneEvent,
     ErrorEvent,
@@ -33,6 +30,9 @@ from agent.llm.events import (
     ThinkingDeltaEvent,
 )
 from agent.llm.stream import AssistantMessageEventStream
+from agent.runtime.message import Message, ThinkingContent, ToolCall
+from agent.runtime.session import Session
+from agent.runtime.settings import ThinkingLevel
 from agent.tui.app import AgentApp
 from agent.tui.chat import MessageWidget, SkillInvocationWidget, ThinkingWidget, ToolWidget
 from agent.tui.context_modal import ContextModal
@@ -91,6 +91,10 @@ def write_extension(path: Path) -> None:
             """
         ).lstrip()
     )
+
+
+def write_extension_script(path: Path, content: str) -> None:
+    path.write_text(textwrap.dedent(content).lstrip())
 
 
 class CancelAwareProviderFake(LLMProviderFake):
@@ -222,7 +226,160 @@ async def test_tui_runner_autocomplete_includes_skills_templates_and_extensions(
         ]
         assert "/build" in options
         assert "/ping" in options
-        assert "/help" in options
+
+
+@pytest.mark.asyncio
+async def test_tui_extension_input_prompt_round_trip(temp_dir):
+    ext_path = temp_dir / "ext_prompt.py"
+    write_extension_script(
+        ext_path,
+        """
+        from agent.extensions.api import ExtensionAPI
+
+        def setup(api: ExtensionAPI):
+            async def ask(args, ctx):
+                if ctx.ui is None:
+                    return "no-ui"
+                name = await ctx.ui.input("What is your name?", default="anon")
+                return f"hello {name}"
+            api.register_command("ask-name", ask)
+        """,
+    )
+
+    config = Config(
+        provider="openai",
+        model="gpt-4o",
+        api_key="test",
+        session_dir=temp_dir,
+        extensions=[ext_path],
+    )
+    app = AgentApp(config, provider=LLMProviderFake([]))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await submit(app, pilot, "/ask-name ")
+        await pilot.pause()
+
+        modal_input = app.screen.query_one("#extension-prompt-input", Input)
+        modal_input.focus()
+        modal_input.value = "bob"
+        await pilot.press("enter")
+        await wait_for_idle(app, pilot)
+
+        assert any("hello bob" in message for message in system_messages(app))
+
+
+@pytest.mark.asyncio
+async def test_tui_presented_read_only_view_shows_close_button_without_input(temp_dir):
+    ext_path = temp_dir / "ext_presented_readonly.py"
+    write_extension_script(
+        ext_path,
+        """
+        from agent.extensions.api import ExtensionAPI, ViewControl
+
+        class ReadOnlyView:
+            def __init__(self):
+                self._closed = False
+
+            def render(self):
+                return "read only details"
+
+            def controls(self):
+                return [ViewControl(kind="button", name="close", label="Close", primary=True)]
+
+            def handle_action(self, action, value=None):
+                if action == "close":
+                    self._closed = True
+
+            def is_done(self):
+                return self._closed
+
+            def result(self):
+                return "closed"
+
+        def setup(api: ExtensionAPI):
+            async def show(args, ctx):
+                if ctx.ui is None:
+                    return "no-ui"
+                result = await ctx.ui.present(ReadOnlyView())
+                return f"result:{result}"
+            api.register_command("show-readonly", show)
+        """,
+    )
+
+    config = Config(
+        provider="openai",
+        model="gpt-4o",
+        api_key="test",
+        session_dir=temp_dir,
+        extensions=[ext_path],
+    )
+    app = AgentApp(config, provider=LLMProviderFake([]))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await submit(app, pilot, "/show-readonly ")
+        await pilot.pause()
+
+        presented_content = app.screen.query_one("#extension-presented-content", Static)
+        assert "read only details" in render_text(presented_content)
+        buttons = app.screen.query(Button)
+        assert any(button.id == "extension-presented-button-close" for button in buttons)
+        assert not list(app.screen.query("#extension-presented-input-command"))
+
+        await pilot.press("enter")
+        await wait_for_idle(app, pilot)
+
+        assert any("result:closed" in message for message in system_messages(app))
+
+
+@pytest.mark.asyncio
+async def test_tui_extension_widget_renders_in_footer_and_right_panel(temp_dir):
+    ext_path = temp_dir / "ext_widget.py"
+    write_extension_script(
+        ext_path,
+        """
+        from agent.extensions.api import ExtensionAPI
+
+        class DemoWidget:
+            def __init__(self, text):
+                self.text = text
+
+            def render(self):
+                return self.text
+
+        def setup(api: ExtensionAPI):
+            def widgets(args, ctx):
+                if ctx.ui is None:
+                    return "no-ui"
+                ctx.ui.set_widget("footer", DemoWidget("footer text"))
+                ctx.ui.set_widget("right_panel", DemoWidget("right text"))
+                return "ok"
+            api.register_command("widgets", widgets)
+        """,
+    )
+
+    config = Config(
+        provider="openai",
+        model="gpt-4o",
+        api_key="test",
+        session_dir=temp_dir,
+        extensions=[ext_path],
+    )
+    app = AgentApp(config, provider=LLMProviderFake([]))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await submit(app, pilot, "/widgets ")
+        await wait_for_idle(app, pilot)
+
+        footer = app.query_one("#extension-footer", Static)
+        panel = app.query_one("#extension-right-panel", Static)
+        assert "footer text" in render_text(footer)
+        assert "right text" in render_text(panel)
 
 
 @pytest.mark.asyncio

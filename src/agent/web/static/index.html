@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Own Coding Agent</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css"
+      rel="stylesheet"
+      type="text/css"
+    >
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@5"
+      rel="stylesheet"
+      type="text/css"
+    >
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      :root {
+        --shell-bg: #06111a;
+        --shell-panel: rgba(8, 24, 35, 0.78);
+        --shell-panel-strong: rgba(11, 31, 45, 0.92);
+        --shell-border: rgba(157, 188, 204, 0.16);
+        --shell-line: rgba(208, 224, 233, 0.08);
+        --shell-glow: rgba(104, 235, 189, 0.18);
+        --shell-copy: #d7e5ec;
+        --shell-muted: #89a2af;
+        --shell-heading: #f4eee6;
+        --tone-user: #7bf1b9;
+        --tone-assistant: #f1dec0;
+        --tone-thinking: #88c8ff;
+        --tone-tool: #ffc574;
+        --tone-system: #f58bb0;
+      }
+
+      html,
+      body,
+      #root {
+        min-height: 100%;
+      }
+
+      body {
+        color: var(--shell-copy);
+        background:
+          linear-gradient(rgba(215, 229, 236, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(215, 229, 236, 0.03) 1px, transparent 1px),
+          radial-gradient(circle at top left, rgba(95, 196, 154, 0.16), transparent 22rem),
+          radial-gradient(circle at 85% 15%, rgba(235, 184, 117, 0.12), transparent 18rem),
+          radial-gradient(circle at bottom right, rgba(102, 146, 255, 0.14), transparent 26rem),
+          linear-gradient(180deg, #041019, #071823 40%, #0a1c28 100%);
+        background-size: 24px 24px, 24px 24px, auto, auto, auto, auto;
+      }
+
+      h1,
+      h2,
+      h3,
+      .display-face {
+        color: var(--shell-heading);
+        letter-spacing: -0.02em;
+      }
+
+      .shell-card {
+        border: 1px solid var(--shell-border);
+        background: var(--shell-panel);
+        box-shadow:
+          0 24px 60px rgba(0, 0, 0, 0.28),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(18px);
+      }
+
+      .shell-card-strong {
+        background: var(--shell-panel-strong);
+      }
+
+      .shell-rule {
+        border-color: var(--shell-line);
+      }
+
+      .message-pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      select,
+      option,
+      textarea,
+      input {
+        color: var(--shell-copy);
+      }
+
+      select,
+      option {
+        background-color: rgba(10, 25, 36, 0.96);
+      }
+
+      .chat-card {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .chat-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 3px;
+        background: currentColor;
+        opacity: 0.9;
+      }
+
+      .chat-card-user { color: var(--tone-user); }
+      .chat-card-assistant { color: var(--tone-assistant); }
+      .chat-card-thinking { color: var(--tone-thinking); }
+      .chat-card-tool_start,
+      .chat-card-tool_call,
+      .chat-card-tool_result { color: var(--tone-tool); }
+      .chat-card-system { color: var(--tone-system); }
+
+      .chat-card-body,
+      .widget-body,
+      .modal-rich-text {
+        color: var(--shell-copy);
+      }
+
+      .modal-rich-text ul {
+        list-style: disc;
+        padding-left: 1.25rem;
+      }
+
+      .modal-rich-text p + p,
+      .modal-rich-text ul + p,
+      .modal-rich-text p + ul {
+        margin-top: 0.85rem;
+      }
+    </style>
+  </head>
+  <body class="text-base-content">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useEffect, useMemo, useRef, useState } = React;
+
+      function websocketUrl() {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${window.location.host}/ws`;
+      }
+
+      async function fetchJson(path, options = {}) {
+        const response = await fetch(path, options);
+        return response.json();
+      }
+
+      function formatTimestamp(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+      }
+
+      function transcriptFromEntries(entries) {
+        const items = [];
+
+        for (const entry of entries || []) {
+          if (entry.type === "message") {
+            const message = entry.message;
+            if (message.role === "system") continue;
+
+            const meta = [message.model, formatTimestamp(message.timestamp)]
+              .filter(Boolean)
+              .join(" • ");
+
+            if (message.role === "assistant" && message.thinking?.text) {
+              items.push({
+                id: `thinking-${entry.id}`,
+                kind: "thinking",
+                label: "thinking",
+                meta,
+                content: message.thinking.text,
+              });
+            }
+
+            items.push({
+              id: entry.id,
+              kind: message.role,
+              label: message.role,
+              meta,
+              content: message.content,
+            });
+
+            for (const toolCall of message.tool_calls || []) {
+              items.push({
+                id: `${entry.id}-tool-${toolCall.id}`,
+                kind: "tool_call",
+                label: "tool call",
+                meta: toolCall.id,
+                content: `${toolCall.name}\n${JSON.stringify(toolCall.arguments, null, 2)}`,
+              });
+            }
+
+            continue;
+          }
+
+          if (entry.type === "model_change") {
+            items.push({
+              id: entry.id,
+              kind: "system",
+              label: "model change",
+              meta: formatTimestamp(entry.timestamp),
+              content: `${entry.provider} → ${entry.modelId}`,
+            });
+            continue;
+          }
+
+          if (entry.type === "compaction") {
+            items.push({
+              id: entry.id,
+              kind: "system",
+              label: "compaction",
+              meta: formatTimestamp(entry.timestamp),
+              content: entry.summary,
+            });
+          }
+        }
+
+        return items;
+      }
+
+      function kindGlyph(kind) {
+        switch (kind) {
+          case "user":
+            return "U";
+          case "assistant":
+            return "A";
+          case "thinking":
+            return "T";
+          case "tool_start":
+            return ">";
+          case "tool_call":
+            return "{}";
+          case "tool_result":
+            return "=";
+          case "system":
+            return "!";
+          default:
+            return "?";
+        }
+      }
+
+      function messageClasses(kind) {
+        return [
+          "chat-card shell-card rounded-[1.8rem] border p-5 shadow-2xl shadow-black/15",
+          "chat-card-" + kind,
+          kind === "thinking" ? "border-sky-400/20 bg-sky-400/8" : "",
+          kind === "assistant" ? "border-stone-300/12 bg-stone-200/[0.06]" : "",
+          kind === "user" ? "border-emerald-300/20 bg-emerald-300/[0.08]" : "",
+          kind === "system" ? "border-rose-300/20 bg-rose-300/[0.08]" : "",
+          kind === "tool_start" ? "border-amber-200/12 bg-amber-200/[0.05]" : "",
+          kind === "tool_call" ? "border-amber-300/20 bg-amber-300/[0.08]" : "",
+          kind === "tool_result" ? "border-orange-300/20 bg-orange-300/[0.08]" : "",
+        ].join(" ");
+      }
+
+      function kindBadgeClasses(kind) {
+        switch (kind) {
+          case "user":
+            return "border-emerald-300/25 bg-emerald-300/12 text-emerald-100";
+          case "assistant":
+            return "border-stone-200/20 bg-stone-200/10 text-stone-100";
+          case "thinking":
+            return "border-sky-300/25 bg-sky-300/12 text-sky-100";
+          case "tool_start":
+          case "tool_call":
+          case "tool_result":
+            return "border-amber-300/25 bg-amber-300/12 text-amber-100";
+          case "system":
+            return "border-rose-300/25 bg-rose-300/12 text-rose-100";
+          default:
+            return "border-base-300/25 bg-base-200/20 text-base-content";
+        }
+      }
+
+      function formatBlocks(text) {
+        if (!text) return [];
+
+        return text.split(/\n\s*\n/).map((block) => {
+          const trimmed = block.trim();
+          if (!trimmed) return null;
+          if (trimmed.startsWith("- ")) {
+            return {
+              kind: "list",
+              items: trimmed.split("\n").map((line) => line.replace(/^- /, "").trim()),
+            };
+          }
+          if (trimmed.startsWith("{") || trimmed.startsWith("[") || trimmed.includes("\n{")) {
+            return { kind: "code", content: trimmed };
+          }
+          return { kind: "text", content: trimmed };
+        }).filter(Boolean);
+      }
+
+      function RichText({ text, className = "" }) {
+        const blocks = useMemo(() => formatBlocks(text), [text]);
+
+        return (
+          <div className={`modal-rich-text ${className}`.trim()}>
+            {blocks.map((block, index) => {
+              if (block.kind === "list") {
+                return (
+                  <ul key={index} className="space-y-2 text-sm leading-6 text-base-content/80">
+                    {block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}
+                  </ul>
+                );
+              }
+
+              if (block.kind === "code") {
+                return (
+                  <pre
+                    key={index}
+                    className="message-pre mono-face rounded-[1.4rem] border border-white/8 bg-black/30 px-4 py-3 text-[0.78rem] text-stone-200"
+                  >
+                    {block.content}
+                  </pre>
+                );
+              }
+
+              return (
+                <p key={index} className="text-sm leading-6 text-base-content/80">
+                  {block.content}
+                </p>
+              );
+            })}
+          </div>
+        );
+      }
+
+      function WidgetPanel({ slot, content }) {
+        if (!content) return null;
+
+        const label = slot === "right_panel" ? "Analyst panel" : "Persistent footer";
+        const title = slot === "right_panel" ? "Extension sidecar" : "Extension note";
+
+        return (
+          <div className="shell-card rounded-[1.8rem] border p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[0.65rem] uppercase tracking-[0.24em] text-base-content/45">{label}</p>
+                <h3 className="display-face text-xl">{title}</h3>
+              </div>
+              <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] uppercase tracking-[0.22em] text-base-content/45">
+                live
+              </span>
+            </div>
+            <div className="widget-body rounded-[1.4rem] border border-white/8 bg-black/20 px-4 py-4">
+              <RichText text={content} className="text-sm" />
+            </div>
+          </div>
+        );
+      }
+
+      function ChatMessageCard({ item }) {
+        const [headline, ...rest] = item.content.split("\n");
+        const detailText = rest.join("\n").trim();
+        const showHeadline = item.kind === "tool_call" || item.kind === "tool_result" || item.kind === "tool_start";
+
+        return (
+          <article className={messageClasses(item.kind)}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-current">
+                  {kindGlyph(item.kind)}
+                </div>
+                <div>
+                  <div className={`inline-flex rounded-full border px-3 py-1 text-[0.62rem] uppercase tracking-[0.24em] ${kindBadgeClasses(item.kind)}`}>
+                    {item.label}
+                  </div>
+                  {showHeadline ? (
+                    <h3 className="mt-3 display-face text-[1.35rem] leading-none">{headline}</h3>
+                  ) : null}
+                </div>
+              </div>
+              {item.meta ? (
+                <div className="max-w-[14rem] text-right text-[0.72rem] uppercase tracking-[0.18em] text-base-content/45">
+                  {item.meta}
+                </div>
+              ) : null}
+            </div>
+            <div className="chat-card-body rounded-[1.3rem] border border-white/8 bg-black/15 px-4 py-4">
+              {showHeadline && detailText ? (
+                <RichText text={detailText} />
+              ) : (
+                <RichText text={item.content} />
+              )}
+            </div>
+          </article>
+        );
+      }
+
+      function StatusBadge({ connected, processing }) {
+        if (!connected) {
+          return <span className="badge badge-outline badge-warning">disconnected</span>;
+        }
+        if (processing) {
+          return <span className="badge badge-outline badge-info">running</span>;
+        }
+        return <span className="badge badge-outline badge-success">idle</span>;
+      }
+
+      function SessionList({ sessions, currentSessionId, onSelect, onNew }) {
+        return (
+          <div className="card border border-base-300 bg-base-200/70 shadow-xl">
+            <div className="card-body gap-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-base-content/50">Sessions</p>
+                  <h2 className="card-title text-lg">Workspace history</h2>
+                </div>
+                <button className="btn btn-sm btn-secondary" onClick={onNew}>New</button>
+              </div>
+              <div className="flex max-h-[22rem] flex-col gap-2 overflow-auto">
+                {sessions.map((session) => (
+                  <button
+                    key={session.id}
+                    className={[
+                      "btn h-auto min-h-0 justify-start rounded-2xl border px-4 py-3 normal-case",
+                      session.id === currentSessionId
+                        ? "border-accent/60 bg-accent/18 text-base-content shadow-lg shadow-accent/10"
+                        : "border-base-300 bg-base-100/70",
+                    ].join(" ")}
+                    onClick={() => onSelect(session.id)}
+                  >
+                    <div className="w-full text-left">
+                      <div className="font-semibold">{session.id}</div>
+                      <div className="mt-1 text-xs text-base-content/60">
+                        {(session.model || "model unknown") + " • " + formatTimestamp(session.created_at)}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function entrySummary(entry) {
+        if (entry.type === "message") {
+          const role = entry.message?.role || "message";
+          const content = (entry.message?.content || "").trim().replace(/\s+/g, " ");
+          const preview = content ? content.slice(0, 72) : "(empty)";
+          return {
+            label: role,
+            preview,
+            detail: entry.id,
+          };
+        }
+
+        if (entry.type === "model_change") {
+          return {
+            label: "model change",
+            preview: `${entry.provider} → ${entry.modelId}`,
+            detail: entry.id,
+          };
+        }
+
+        if (entry.type === "compaction") {
+          return {
+            label: "compaction",
+            preview: entry.summary,
+            detail: entry.id,
+          };
+        }
+
+        return {
+          label: entry.type,
+          preview: entry.id,
+          detail: entry.id,
+        };
+      }
+
+      function SessionBranchExplorer({ entries, currentLeafId, onSetLeaf, onFork }) {
+        const branchEntries = (entries || []).filter((entry) => {
+          if (entry.type === "session_state") {
+            return false;
+          }
+
+          if (entry.type === "message" && entry.message?.role === "system") {
+            return false;
+          }
+
+          return true;
+        });
+
+        return (
+          <div className="card border border-base-300 bg-base-200/70 shadow-xl">
+            <div className="card-body gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-base-content/50">Branch</p>
+                <h2 className="card-title text-lg">Conversation path</h2>
+              </div>
+              {branchEntries.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-base-300 bg-base-100/50 px-4 py-5 text-sm text-base-content/60">
+                  No branchable conversation entries yet.
+                </div>
+              ) : (
+              <div className="flex max-h-[24rem] flex-col gap-2 overflow-auto">
+                {branchEntries.map((entry) => {
+                  const summary = entrySummary(entry);
+                  const isLeaf = entry.id === currentLeafId;
+                  const canFork = entry.type === "message";
+
+                  return (
+                    <div
+                      key={entry.id}
+                      className={[
+                        "rounded-2xl border px-4 py-3",
+                        isLeaf ? "border-accent bg-accent/10" : "border-base-300 bg-base-100/70",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs uppercase tracking-[0.2em] text-base-content/60">
+                              {summary.label}
+                            </span>
+                            {isLeaf ? <span className="badge badge-xs badge-accent">leaf</span> : null}
+                          </div>
+                          <div className="mt-2 truncate text-sm font-medium">{summary.preview}</div>
+                          <div className="mt-1 text-xs text-base-content/50">{summary.detail}</div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            className="btn btn-xs btn-outline"
+                            onClick={() => onSetLeaf(entry.id)}
+                            disabled={isLeaf}
+                          >
+                            Jump
+                          </button>
+                          {canFork ? (
+                            <button
+                              className="btn btn-xs btn-secondary"
+                              onClick={() => onFork(entry.id)}
+                            >
+                              Fork
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function ModelPanel({
+        models,
+        modelName,
+        thinkingLevel,
+        onModelChange,
+        onThinkingChange,
+      }) {
+        return (
+          <div className="card border border-base-300 bg-base-200/70 shadow-xl">
+            <div className="card-body gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-base-content/50">Model</p>
+                <h2 className="card-title text-lg">Runtime controls</h2>
+              </div>
+              <label className="form-control gap-2">
+                <span className="label-text">Model</span>
+                <select
+                  className="select select-bordered w-full"
+                  value={modelName}
+                  onChange={(event) => onModelChange(event.target.value)}
+                >
+                  {models.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-control gap-2">
+                <span className="label-text">Thinking</span>
+                <select
+                  className="select select-bordered w-full"
+                  value={thinkingLevel}
+                  onChange={(event) => onThinkingChange(event.target.value)}
+                >
+                  {["off", "minimal", "low", "medium", "high"].map((level) => (
+                    <option key={level} value={level}>{level}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        );
+      }
+
+      function ExtensionPanels({ rightPanel, footer }) {
+        return (
+          <>
+            <WidgetPanel slot="right_panel" content={rightPanel} />
+            <WidgetPanel slot="footer" content={footer} />
+          </>
+        );
+      }
+
+      function ChatTranscript({ items }) {
+        const scrollRef = useRef(null);
+
+        useEffect(() => {
+          if (!scrollRef.current) return;
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }, [items]);
+
+        return (
+          <div ref={scrollRef} className="flex min-h-0 flex-col gap-3 overflow-auto pr-1">
+            {items.map((item) => <ChatMessageCard key={item.id} item={item} />)}
+          </div>
+        );
+      }
+
+      function Composer({ prompt, setPrompt, onSubmit, onCancel, disabled }) {
+        return (
+          <form className="card border border-base-300 bg-base-200/70 shadow-xl" onSubmit={onSubmit}>
+            <div className="card-body gap-4">
+              <textarea
+                className="textarea textarea-bordered min-h-32 w-full font-mono"
+                placeholder="Ask the agent to review, plan, edit, or run tools..."
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    onSubmit(event);
+                  }
+                }}
+              />
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-base-content/60">Shift+Enter for newline</p>
+                <div className="join">
+                  <button type="button" className="btn join-item btn-ghost" onClick={onCancel} disabled={!disabled}>
+                    Stop
+                  </button>
+                  <button type="submit" className="btn join-item btn-primary">
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        );
+      }
+
+      function ModalHost({ request, view, onResolve, onViewAction, onClose }) {
+        if (!request && !view) {
+          return null;
+        }
+
+        const content = request || view;
+        const title = request ? request.prompt : view.title;
+        const body = view ? view.body : null;
+
+        return (
+          <dialog className="modal modal-open">
+            <div className="modal-box shell-card shell-card-strong max-w-2xl space-y-5 rounded-[2rem] border p-0">
+              <div className="shell-rule border-b px-6 py-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[0.65rem] uppercase tracking-[0.24em] text-base-content/45">
+                      {request ? "Extension request" : "Presented view"}
+                    </p>
+                    <h3 className="display-face mt-2 text-3xl leading-none">{title}</h3>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-[0.62rem] uppercase tracking-[0.22em] ${request ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-100" : "border-fuchsia-300/20 bg-fuchsia-300/10 text-fuchsia-100"}`}>
+                    {request ? request.kind : "interactive"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="px-6 pb-6">
+                {request ? (
+                  <p className="mb-5 text-sm leading-6 text-base-content/70">
+                    The extension is asking for host input before the workflow can continue.
+                  </p>
+                ) : null}
+
+                {request?.kind === "input" ? (
+                  <InputModal request={request} onResolve={onResolve} onClose={onClose} />
+                ) : null}
+
+                {request?.kind === "confirm" ? (
+                  <ConfirmModal request={request} onResolve={onResolve} onClose={onClose} />
+                ) : null}
+
+                {request?.kind === "select" ? (
+                  <SelectModal request={request} onResolve={onResolve} onClose={onClose} />
+                ) : null}
+
+                {view ? (
+                  <PresentedViewModal view={view} body={body} onViewAction={onViewAction} onClose={onClose} />
+                ) : null}
+              </div>
+            </div>
+            <form method="dialog" className="modal-backdrop">
+              <button onClick={onClose}>close</button>
+            </form>
+          </dialog>
+        );
+      }
+
+      function InputModal({ request, onResolve, onClose }) {
+        const [value, setValue] = useState(request.default || "");
+        return (
+          <>
+            <div className="mb-4 rounded-[1.3rem] border border-white/8 bg-black/20 px-4 py-3 text-sm text-base-content/65">
+              {request.default ? `Default: ${request.default}` : "No default value supplied."}
+            </div>
+            <input
+              className="input input-bordered w-full border-white/10 bg-black/20 text-base-content"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              autoFocus
+            />
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => { onResolve(request.request_id, null); onClose(); }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={() => { onResolve(request.request_id, value); onClose(); }}>
+                Submit
+              </button>
+            </div>
+          </>
+        );
+      }
+
+      function ConfirmModal({ request, onResolve, onClose }) {
+        return (
+          <>
+            <div className="rounded-[1.3rem] border border-white/8 bg-black/20 px-4 py-4">
+              <RichText text={request.prompt} />
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => { onResolve(request.request_id, false); onClose(); }}>
+                No
+              </button>
+              <button className="btn btn-primary" onClick={() => { onResolve(request.request_id, true); onClose(); }}>
+                Yes
+              </button>
+            </div>
+          </>
+        );
+      }
+
+      function SelectModal({ request, onResolve, onClose }) {
+        const [value, setValue] = useState(request.options?.[0]?.value || "");
+        return (
+          <>
+            <select
+              className="select select-bordered w-full border-white/10 bg-black/20 text-base-content"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            >
+              {(request.options || []).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => { onResolve(request.request_id, null); onClose(); }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={() => { onResolve(request.request_id, value); onClose(); }}>
+                Choose
+              </button>
+            </div>
+          </>
+        );
+      }
+
+      function PresentedViewModal({ view, body, onViewAction, onClose }) {
+        const [controlValues, setControlValues] = useState(() => Object.fromEntries(
+          (view.controls || []).map((control) => [control.name, ""])
+        ));
+
+        return (
+          <>
+            <div className="rounded-[1.4rem] border border-white/8 bg-black/20 px-5 py-5">
+              <RichText text={body} />
+            </div>
+            <div className="space-y-3">
+              {(view.controls || []).map((control) => {
+                if (control.kind === "button") {
+                  return null;
+                }
+
+                if (control.kind === "input") {
+                  return (
+                    <label key={control.name} className="block space-y-2">
+                      <span className="text-xs uppercase tracking-[0.2em] text-base-content/50">
+                        {control.label || control.name}
+                      </span>
+                      <input
+                        className="input input-bordered w-full border-white/10 bg-black/20 text-base-content"
+                        placeholder={control.placeholder || ""}
+                        value={controlValues[control.name] || ""}
+                        onChange={(event) => setControlValues((prev) => ({
+                          ...prev,
+                          [control.name]: event.target.value,
+                        }))}
+                      />
+                    </label>
+                  );
+                }
+
+                if (control.kind === "select") {
+                  return (
+                    <label key={control.name} className="block space-y-2">
+                      <span className="text-xs uppercase tracking-[0.2em] text-base-content/50">
+                        {control.label || control.name}
+                      </span>
+                      <select
+                        className="select select-bordered w-full border-white/10 bg-black/20 text-base-content"
+                        value={controlValues[control.name] || control.options?.[0] || ""}
+                        onChange={(event) => setControlValues((prev) => ({
+                          ...prev,
+                          [control.name]: event.target.value,
+                        }))}
+                      >
+                        {(control.options || []).map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                }
+
+                return null;
+              })}
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={onClose}>Close</button>
+              {(view.controls || []).map((control) => (
+                <button
+                  key={control.name}
+                  className={`btn ${control.primary ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => onViewAction(view.view_id, control.name, control.kind === "button" ? null : (controlValues[control.name] || ""))}
+                >
+                  {control.label || control.name}
+                </button>
+              ))}
+            </div>
+          </>
+        );
+      }
+
+      function App() {
+        const [connected, setConnected] = useState(false);
+        const [sessions, setSessions] = useState([]);
+        const [currentSessionId, setCurrentSessionId] = useState(null);
+        const [currentLeafId, setCurrentLeafId] = useState(null);
+        const [sessionEntries, setSessionEntries] = useState([]);
+        const [models, setModels] = useState([]);
+        const [modelName, setModelName] = useState("");
+        const [thinkingLevel, setThinkingLevel] = useState("off");
+        const [totalTokens, setTotalTokens] = useState(0);
+        const [isProcessing, setIsProcessing] = useState(false);
+        const [extensionStatus, setExtensionStatus] = useState("No extension status");
+        const [prompt, setPrompt] = useState("");
+        const [messages, setMessages] = useState([]);
+        const [pendingRequest, setPendingRequest] = useState(null);
+        const [presentedView, setPresentedView] = useState(null);
+        const [widgets, setWidgets] = useState({ footer: null, right_panel: null });
+
+        const socketRef = useRef(null);
+        const activeRunIdRef = useRef(null);
+        const currentAssistantIdRef = useRef(null);
+        const currentThinkingIdRef = useRef(null);
+
+        const modelSummary = useMemo(
+          () => [modelName, thinkingLevel].filter(Boolean).join(" • "),
+          [modelName, thinkingLevel],
+        );
+
+        useEffect(() => {
+          refreshSessions();
+          refreshModels();
+          connect();
+          return () => {
+            socketRef.current?.close();
+          };
+        }, []);
+
+        async function refreshSessions() {
+          const payload = await fetchJson("/api/sessions");
+          setSessions(payload);
+        }
+
+        async function refreshModels(selectedModel = null) {
+          const payload = await fetchJson("/api/models");
+          setModels(payload.models || []);
+          setModelName(selectedModel || payload.model || "");
+        }
+
+        async function loadTranscript(sessionId) {
+          if (!sessionId) return;
+          const payload = await fetchJson(`/api/sessions/${sessionId}`);
+          if (payload.error) {
+            appendItem({
+              id: crypto.randomUUID(),
+              kind: "system",
+              label: "error",
+              meta: "",
+              content: payload.error,
+            });
+            return;
+          }
+          setSessionEntries(payload.entries || []);
+          setCurrentLeafId(payload.session.leaf_id || null);
+          setMessages(transcriptFromEntries(payload.active_entries || payload.entries || []));
+          currentAssistantIdRef.current = null;
+          currentThinkingIdRef.current = null;
+        }
+
+        function connect() {
+          const socket = new WebSocket(websocketUrl());
+          socketRef.current = socket;
+
+          socket.addEventListener("open", () => {
+            setConnected(true);
+          });
+
+          socket.addEventListener("close", () => {
+            setConnected(false);
+            window.setTimeout(connect, 1000);
+          });
+
+          socket.addEventListener("message", (event) => {
+            const payload = JSON.parse(event.data);
+            handleSocketMessage(payload);
+          });
+        }
+
+        function sendMessage(payload) {
+          const socket = socketRef.current;
+          if (!socket || socket.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          socket.send(JSON.stringify(payload));
+        }
+
+        function appendItem(item) {
+          setMessages((prev) => [...prev, item]);
+        }
+
+        function appendDeltaToStreamItem(kind, label, delta) {
+          const targetRef = kind === "thinking" ? currentThinkingIdRef : currentAssistantIdRef;
+          let targetId = targetRef.current;
+
+          setMessages((prev) => {
+            if (!targetId) {
+              targetId = crypto.randomUUID();
+              targetRef.current = targetId;
+              return [...prev, { id: targetId, kind, label, meta: "", content: delta }];
+            }
+
+            return prev.map((item) => (
+              item.id === targetId ? { ...item, content: item.content + delta } : item
+            ));
+          });
+        }
+
+        function clearStreamingPointers() {
+          currentAssistantIdRef.current = null;
+          currentThinkingIdRef.current = null;
+        }
+
+        function handleSocketMessage(payload) {
+          switch (payload.type) {
+            case "state.snapshot":
+              setCurrentSessionId(payload.session.id);
+              setCurrentLeafId(payload.session.leaf_id || null);
+              setModelName(payload.model.name);
+              setThinkingLevel(payload.model.thinking_level);
+              setIsProcessing(payload.runtime.is_processing);
+              setTotalTokens(payload.runtime.total_tokens);
+              refreshSessions();
+              loadTranscript(payload.session.id);
+              break;
+            case "run.started":
+              activeRunIdRef.current = payload.run_id;
+              setIsProcessing(true);
+              clearStreamingPointers();
+              break;
+            case "run.finished":
+              activeRunIdRef.current = null;
+              setIsProcessing(false);
+              clearStreamingPointers();
+              setTotalTokens(payload.total_tokens);
+              refreshSessions();
+              break;
+            case "run.failed":
+              activeRunIdRef.current = null;
+              setIsProcessing(false);
+              clearStreamingPointers();
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: "system",
+                label: "error",
+                meta: "",
+                content: payload.error,
+              });
+              break;
+            case "chunk.text": {
+              appendDeltaToStreamItem("assistant", "assistant", payload.delta);
+              break;
+            }
+            case "chunk.thinking": {
+              appendDeltaToStreamItem("thinking", "thinking", payload.delta);
+              break;
+            }
+            case "chunk.tool_start":
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: "tool_start",
+                label: "tool start",
+                meta: payload.tool_call_id,
+                content: `starting ${payload.tool_name}`,
+              });
+              break;
+            case "chunk.tool_call":
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: "tool_call",
+                label: "tool call",
+                meta: payload.tool_call_id,
+                content: `${payload.tool_name}\n${JSON.stringify(payload.input, null, 2)}`,
+              });
+              break;
+            case "chunk.tool_result":
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: "tool_result",
+                label: "tool result",
+                meta: payload.tool_call_id,
+                content: `${payload.tool_name} result\n${payload.content}`,
+              });
+              break;
+            case "chunk.message":
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: payload.role === "system" ? "system" : "assistant",
+                label: payload.role,
+                meta: "",
+                content: payload.content,
+              });
+              break;
+            case "session.changed":
+              setCurrentSessionId(payload.session.id);
+              setCurrentLeafId(payload.session.leaf_id || null);
+              refreshSessions();
+              loadTranscript(payload.session.id);
+              break;
+            case "model.changed":
+              setModelName(payload.model.name);
+              setThinkingLevel(payload.model.thinking_level);
+              refreshModels(payload.model.name);
+              break;
+            case "ui.notify":
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: "system",
+                label: "notification",
+                meta: payload.level,
+                content: payload.message,
+              });
+              break;
+            case "ui.status":
+              setExtensionStatus(payload.text || "No extension status");
+              break;
+            case "ui.request":
+              setPendingRequest(payload);
+              break;
+            case "ui.view_present":
+              setPresentedView(payload);
+              break;
+            case "ui.view_close":
+              setPendingRequest(null);
+              setPresentedView(null);
+              break;
+            case "ui.widget":
+              setWidgets((prev) => ({ ...prev, [payload.slot]: payload.content }));
+              break;
+            case "error":
+              appendItem({
+                id: crypto.randomUUID(),
+                kind: "system",
+                label: "error",
+                meta: "",
+                content: payload.message,
+              });
+              break;
+            default:
+              break;
+          }
+        }
+
+        function handleSubmit(event) {
+          event.preventDefault();
+          const trimmed = prompt.trim();
+          if (!trimmed) return;
+
+          appendItem({
+            id: crypto.randomUUID(),
+            kind: "user",
+            label: "user",
+            meta: "",
+            content: trimmed,
+          });
+
+          sendMessage({
+            type: "run.start",
+            run_id: crypto.randomUUID(),
+            input: trimmed,
+          });
+          setPrompt("");
+        }
+
+        return (
+          <div className="min-h-screen bg-transparent px-4 py-6 lg:px-6">
+            <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-7xl gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+              <aside className="space-y-4">
+                <div className="shell-card shell-card-strong rounded-[2rem] border">
+                  <div className="p-6">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-base-content/50">Delivery</p>
+                        <h1 className="display-face text-4xl font-semibold leading-none">Web Shell</h1>
+                        <p className="mt-2 text-sm text-base-content/60">
+                          React + Tailwind + DaisyUI over the runtime WebSocket contract.
+                        </p>
+                      </div>
+                      <StatusBadge connected={connected} processing={isProcessing} />
+                    </div>
+                  </div>
+                </div>
+
+                <SessionList
+                  sessions={sessions}
+                  currentSessionId={currentSessionId}
+                  onSelect={(sessionId) => sendMessage({ type: "session.load", session_id: sessionId })}
+                  onNew={() => {
+                    setMessages([]);
+                    setSessionEntries([]);
+                    clearStreamingPointers();
+                    sendMessage({ type: "session.new" });
+                  }}
+                />
+
+                <SessionBranchExplorer
+                  entries={sessionEntries}
+                  currentLeafId={currentLeafId}
+                  onSetLeaf={(entryId) => sendMessage({ type: "session.set_leaf", entry_id: entryId })}
+                  onFork={(messageId) => sendMessage({ type: "session.fork", message_id: messageId })}
+                />
+
+                <ModelPanel
+                  models={models}
+                  modelName={modelName}
+                  thinkingLevel={thinkingLevel}
+                  onModelChange={(model) => sendMessage({ type: "model.set", model })}
+                  onThinkingChange={(level) => sendMessage({ type: "model.set_thinking", level })}
+                />
+
+                <ExtensionPanels rightPanel={widgets.right_panel} footer={widgets.footer} />
+              </aside>
+
+              <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
+                <header className="shell-card shell-card-strong rounded-[2rem] border">
+                  <div className="flex flex-row flex-wrap items-start justify-between gap-4 p-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-base-content/50">Runtime</p>
+                      <h2 className="display-face text-4xl leading-none">Session {currentSessionId || "..."}</h2>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs uppercase tracking-[0.22em] text-base-content/65">
+                        {modelSummary || "model"}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs uppercase tracking-[0.22em] text-base-content/65">
+                        {totalTokens} tokens
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs uppercase tracking-[0.22em] text-base-content/65">
+                        {extensionStatus}
+                      </span>
+                    </div>
+                  </div>
+                </header>
+
+                <section className="shell-card min-h-0 rounded-[2rem] border">
+                  <div className="min-h-0 p-5">
+                    <ChatTranscript items={messages} />
+                  </div>
+                </section>
+
+                <Composer
+                  prompt={prompt}
+                  setPrompt={setPrompt}
+                  onSubmit={handleSubmit}
+                  onCancel={() => {
+                    if (!activeRunIdRef.current) return;
+                    sendMessage({ type: "run.cancel", run_id: activeRunIdRef.current });
+                  }}
+                  disabled={Boolean(activeRunIdRef.current)}
+                />
+              </main>
+            </div>
+
+            <ModalHost
+              request={pendingRequest}
+              view={presentedView}
+              onResolve={(requestId, value) => {
+                sendMessage({ type: "ui.response", request_id: requestId, value });
+              }}
+              onViewAction={(viewId, action, value) => {
+                sendMessage({ type: "ui.view_action", view_id: viewId, action, value });
+              }}
+              onClose={() => {
+                setPendingRequest(null);
+                setPresentedView(null);
+              }}
+            />
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>

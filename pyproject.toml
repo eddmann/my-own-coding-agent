@@ -5,10 +5,13 @@ description = "A Python AI coding agent for learning"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.115.0",
     "textual>=6.6.0",
     "httpx>=0.28.0",
     "pydantic>=2.10.0",
     "typer>=0.15.0",
+    "uvicorn>=0.34.0",
+    "websockets>=15.0.0",
     "pyyaml>=6.0.2",
     "tiktoken>=0.8.0",
 ]
@@ -40,6 +43,14 @@ line-ending = "lf"
 [tool.mypy]
 python_version = "3.14"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["fastapi", "fastapi.*", "uvicorn"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["agent.web.server"]
+disallow_untyped_decorators = false
 
 [build-system]
 requires = ["hatchling"]

@@ -14,7 +14,7 @@ from agent.llm.events import Cost, StopReason, Usage
 from agent.llm.pricing import get_pricing
 
 if TYPE_CHECKING:
-    from agent.core.message import Message
+    from agent.runtime.message import Message
 
 OPENAI_API_URL = "https://api.openai.com"
 

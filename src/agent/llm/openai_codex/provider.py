@@ -50,8 +50,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
-    from agent.core.message import Message
     from agent.llm.openai_codex.oauth import OAuthCredentials
+    from agent.runtime.message import Message
 
 OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 OPENAI_CODEX_RESPONSES_PATH = "/codex/responses"

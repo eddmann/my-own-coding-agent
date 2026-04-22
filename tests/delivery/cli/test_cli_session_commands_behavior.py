@@ -7,8 +7,8 @@ import textwrap
 from typer.testing import CliRunner
 
 from agent import cli
-from agent.core.message import Message, Role
-from agent.core.session import Session
+from agent.runtime.message import Message, Role
+from agent.runtime.session import Session
 
 
 def test_cli_fork_errors_when_no_sessions_exist(temp_dir, monkeypatch):

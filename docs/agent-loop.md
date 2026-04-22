@@ -1,13 +1,19 @@
 # Agent Loop (Detailed)
 
-The agent loop is implemented in `src/agent/core/agent.py` and is built around streaming responses and tool execution.
+The agent loop is implemented in `src/agent/runtime/agent.py` and is built around streaming responses and tool execution.
 
 ## Step 1: Input intake & preprocessing
 
-- Extensions can block or transform input (`ExtensionRunner.emit_input`).
-- `$skill-name` expands into a `<skill>` block + optional args.
-- `/template-name args` expands using prompt templates.
-- If the input is an extension slash command and no template matched, the command is executed and the run ends.
+- The runtime first asks its hook host to resolve raw input via `resolve_input(...)`.
+- That hook can:
+  - block the input
+  - replace the text
+  - fully handle the input and return output without calling the LLM
+- After hook-based input resolution, built-in preprocessing runs:
+  - `$skill-name` expands into a `<skill>` block + optional args
+  - `/template-name args` expands using prompt templates
+- The extension host uses input resolution to implement extension slash commands.
+- Hook hosts can queue follow-up user messages with run-scoped control, so one command can trigger later LLM turns.
 
 ## Step 2: Persist user message + compaction check
 
@@ -18,7 +24,7 @@ The agent loop is implemented in `src/agent/core/agent.py` and is built around s
 
 - System prompt is composed from:
   - base prompt or custom system prompt
-  - tool descriptions + guidelines
+  - active tool descriptions + guidelines
   - context files (AGENTS.md / CLAUDE.md)
   - skills (XML list)
   - environment info
@@ -28,12 +34,13 @@ The agent loop is implemented in `src/agent/core/agent.py` and is built around s
 
 - Text, thinking, and toolcall events stream back.
 - Tool calls are accumulated, validated, and executed via the tool registry.
-- Extensions can block tools or modify tool results.
+- Hook hosts can block tools or modify tool results before results are appended.
 
 ## Step 5: Turn finalization
 
 - Assistant message + tool results are appended to the session.
-- Turn and agent lifecycle events are emitted.
+- Turn, agent, session, model-select, and compaction lifecycle events are emitted.
+- Any queued extension follow-up user messages are drained back into the run loop.
 - Token counts are updated for the status bar.
 
 ## Cancellation

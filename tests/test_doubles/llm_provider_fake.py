@@ -18,7 +18,7 @@ from tests.test_doubles.llm_stream_builders import make_text_events
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from agent.core.message import Message
+    from agent.runtime.message import Message
 
 
 class LLMProviderFake(LLMProvider):

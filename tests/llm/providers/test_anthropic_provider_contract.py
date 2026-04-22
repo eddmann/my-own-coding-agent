@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from agent.core.message import Message, Role, ThinkingContent
 from agent.llm.anthropic import oauth as oauth_mod
 from agent.llm.anthropic.oauth import OAuthCredentials
 from agent.llm.anthropic.provider import ANTHROPIC_API_URL, AnthropicProvider
@@ -20,6 +19,7 @@ from agent.llm.events import (
     ToolCallBlock,
 )
 from agent.llm.retry import RetryConfig
+from agent.runtime.message import Message, Role, ThinkingContent
 
 
 def _sse_payload(events: list[dict[str, object]]) -> bytes:

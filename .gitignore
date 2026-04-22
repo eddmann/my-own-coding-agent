@@ -9,4 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
+.agent/
+reference/
 tmp/

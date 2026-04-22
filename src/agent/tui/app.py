@@ -3,49 +3,32 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.theme import Theme
 from textual.widgets import Static
 
-from agent.core.agent import Agent
-from agent.core.chunk import (
-    MessageChunk,
-    TextDeltaChunk,
-    ThinkingDeltaChunk,
-    ToolCallChunk,
-    ToolCallStartChunk,
-    ToolResultChunk,
-)
-from agent.core.message import Role
-from agent.core.session import MessageEntry, Session
-from agent.core.settings import ThinkingLevel
-from agent.prompts.loader import PromptTemplateLoader
-from agent.skills.loader import SkillLoader
-from agent.tui.chat import ChatView, MessageWidget, ThinkingWidget
-from agent.tui.context_modal import ContextModal
+from agent.tui.chat import ChatView
+from agent.tui.compose import TUILoaders, TUIRuntime, build_tui_loaders, build_tui_runtime
+from agent.tui.controller import TUIController
+from agent.tui.extension_bridge import TUIExtensionBridge
 from agent.tui.input import PromptInput
-from agent.tui.model_modal import ModelModal
-from agent.tui.session_modal import SessionForkModal, SessionLoadModal, SessionTreeModal
+from agent.tui.renderer import TUIRenderer
 from agent.tui.status import StatusBar
 
 if TYPE_CHECKING:
     from textual.timer import Timer
 
     from agent.config import Config
+    from agent.extensions.host import ExtensionHost
     from agent.llm.provider import LLMProvider
-
-# Startup banner
-BANNER = """
-█▀▄▀█ █▄█   █▀█ █ █ █ █▄ █   ▄▀█ █▀▀ █▀▀ █▄ █ ▀█▀
-█ ▀ █  █    █▄█ ▀▄▀▄▀ █ ▀█   █▀█ █▄█ ██▄ █ ▀█  █
-""".strip()
+    from agent.runtime.agent import Agent
+    from agent.runtime.session import Session
 
 # Minimal Nord-inspired theme
 MINIMAL_THEME = Theme(
@@ -88,31 +71,38 @@ class AgentApp(App[None]):
         self._bootstrap_config = config
         self._session = session
         self._provider = provider
-        self._agent: Agent | None = None
+        self._runtime: TUIRuntime | None = None
+        self._loaders: TUILoaders = build_tui_loaders(config)
+        self._controller = TUIController(self)
+        self._extension_bridge = TUIExtensionBridge(self)
+        self._renderer = TUIRenderer(self, loaders=self._loaders)
         self._spinner_timer: Timer | None = None
+        self._extension_widget_timer: Timer | None = None
 
         self._cancel_event: asyncio.Event | None = None
 
-        # Create loaders for autocomplete (shared with agent)
-        self._skill_loader = SkillLoader.with_defaults(
-            extra_dirs=config.skills_dirs,
-        )
-        self._template_loader = PromptTemplateLoader.with_defaults(
-            extra_dirs=config.prompt_template_dirs,
-        )
+    @property
+    def runtime(self) -> TUIRuntime:
+        """Get the runtime stack, creating it if needed."""
+        if self._runtime is None:
+            self._runtime = build_tui_runtime(
+                self._bootstrap_config,
+                self._provider,
+                self._session,
+                loaders=self._loaders,
+                extension_bridge=self._extension_bridge,
+            )
+        return self._runtime
 
     @property
     def agent(self) -> Agent:
         """Get the agent, creating it if needed."""
-        if self._agent is None:
-            self._agent = Agent(
-                self._bootstrap_config.to_agent_settings(),
-                self._provider,
-                self._session,
-                skill_loader=self._skill_loader,
-                template_loader=self._template_loader,
-            )
-        return self._agent
+        return self.runtime.agent
+
+    @property
+    def extension_host(self) -> ExtensionHost:
+        """Get the extension host, creating the agent if needed."""
+        return self.runtime.extension_host
 
     def watch_is_processing(self, processing: bool) -> None:
         """React to processing state changes."""
@@ -127,152 +117,16 @@ class AgentApp(App[None]):
         chat = self.query_one("#chat-view", ChatView)
         chat.advance_waiting()
 
-    def _render_banner(self, chat: ChatView) -> None:
-        """Render the startup banner in chat."""
-        chat.mount(
-            Static(
-                f"{BANNER}\n\nmy-own-coding-agent | {self.agent.provider.model}",
-                classes="message-system",
-            )
-        )
-
-    def _render_session_messages(self, chat: ChatView, session: Session) -> None:
-        """Render existing session messages into the chat view."""
-        for msg in session.messages:
-            if msg.role.value == "system":
-                continue
-            if msg.role.value == "user":
-                chat.add_user_message(msg.content)
-                continue
-            if msg.role.value == "assistant":
-                if msg.thinking and msg.thinking.text:
-                    thinking = ThinkingWidget()
-                    chat.mount(thinking)
-                    thinking.append_text(msg.thinking.text)
-                chat.mount(MessageWidget("assistant", msg.content))
-                if msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        chat.complete_tool_call(tc)
-                continue
-            if msg.role.value == "tool" and msg.tool_call_id:
-                chat.set_tool_result(
-                    msg.tool_call_id,
-                    msg.content,
-                    show_waiting=False,
-                    create_if_missing=True,
-                )
-
-    def _load_session(self, session: Session, note: str | None = None) -> None:
-        """Load a session into the agent and re-render UI."""
-        self.agent.load_session(session)
-        self._session = session
-
-        chat = self.query_one("#chat-view", ChatView)
-        chat.clear_chat()
-        self._render_banner(chat)
-        if note:
-            chat.add_system_message(note)
-        self._render_session_messages(chat, session)
-
-        status = self.query_one("#status-line", StatusBar)
-        status.set_model(self.agent.provider.model)
-        status.set_thinking(self.agent.config.thinking_level)
-        status.set_session(session.metadata.id, session.metadata.parent_session_id)
-        status.set_tokens(self.agent.total_tokens, self.agent.config.context_max_tokens)
-
-    def _load_session_path(self, path: Path) -> None:
-        """Load a session from a specific file path."""
-        chat = self.query_one("#chat-view", ChatView)
-        if not path.exists():
-            chat.add_system_message(f"session file not found: {path}")
-            return
-        try:
-            session = Session.load(path)
-        except Exception as exc:
-            chat.add_system_message(f"failed to load session: {exc}")
-            return
-        self._load_session(session, note=f"loaded session {session.metadata.id}")
-
-    def _resolve_message_id(self, session: Session, spec: str) -> str | None:
-        """Resolve a message id from a spec (id, prefix, index, last)."""
-        messages = session.messages
-        if not messages:
-            return None
-        spec = spec.strip()
-        if not spec or spec.lower() in {"last", "latest"}:
-            return messages[-1].id
-        if spec.lower() in {"assistant", "last-assistant"}:
-            for msg in reversed(messages):
-                if msg.role == Role.ASSISTANT:
-                    return msg.id
-            return messages[-1].id
-        if spec.isdigit():
-            idx = int(spec)
-            if 0 <= idx < len(messages):
-                return messages[idx].id
-        for msg in messages:
-            if msg.id == spec:
-                return msg.id
-        matches = [msg for msg in messages if msg.id.startswith(spec)]
-        if len(matches) == 1:
-            return matches[0].id
-        return None
-
-    def _fork_from_message(self, message_id: str) -> None:
-        """Fork the current session from a given message id."""
-        chat = self.query_one("#chat-view", ChatView)
-        parent_id = self.agent.session.metadata.id
-        try:
-            new_session = self.agent.session.fork(message_id, self.agent.config.session_dir)
-        except Exception as exc:
-            chat.add_system_message(f"failed to fork session: {exc}")
-            return
-        note = f"forked from {parent_id} at {message_id}"
-        self._load_session(new_session, note=note)
-
-    def _set_leaf(self, message_id: str) -> None:
-        """Move the active leaf to a given message id."""
-        chat = self.query_one("#chat-view", ChatView)
-        try:
-            self.agent.session.set_leaf(message_id)
-        except Exception as exc:
-            chat.add_system_message(f"failed to set leaf: {exc}")
-            return
-        self._load_session(self.agent.session, note=f"branched to {message_id}")
-
-    def _resolve_entry_id(self, session: Session, spec: str) -> str | None:
-        """Resolve an entry id across all message entries in the session."""
-        entries = list(session.entries)
-        if not entries:
-            return None
-        spec = spec.strip()
-        if not spec or spec.lower() in {"last", "latest"}:
-            return entries[-1].id
-        if spec.lower() in {"assistant", "last-assistant"}:
-            for entry in reversed(entries):
-                if isinstance(entry, MessageEntry) and entry.message.role == Role.ASSISTANT:
-                    return entry.id
-            return entries[-1].id
-        for entry in entries:
-            if entry.id == spec:
-                return entry.id
-        matches = [e for e in entries if e.id.startswith(spec)]
-        if len(matches) == 1:
-            return matches[0].id
-        if spec.isdigit():
-            msg_entries = [e for e in entries if isinstance(e, MessageEntry)]
-            idx = int(spec)
-            if 0 <= idx < len(msg_entries):
-                return msg_entries[idx].id
-        return None
-
     def compose(self) -> ComposeResult:
         """Compose the UI."""
-        yield ChatView(id="chat-view")
+        with Horizontal(id="main-container"):
+            yield ChatView(id="chat-view")
+            yield Static("", id="extension-right-panel", classes="extension-slot hidden")
+        yield Static("", id="extension-footer", classes="extension-slot hidden")
         with Vertical(id="input-container"):
             yield PromptInput(
-                skill_loader=self._skill_loader,
-                template_loader=self._template_loader,
+                skill_loader=self._loaders.skill_loader,
+                template_loader=self._loaders.template_loader,
                 id="prompt-input",
             )
         yield StatusBar(id="status-line")
@@ -289,31 +143,38 @@ class AgentApp(App[None]):
         self.theme = "minimal"
 
         # Show banner
-        chat = self.query_one("#chat-view", ChatView)
-        self._render_banner(chat)
+        self._renderer.render_banner()
 
         # Update status bar
         status = self.query_one("#status-line", StatusBar)
-        status.set_model(self.agent.provider.model)
-        status.set_thinking(self.agent.config.thinking_level)
+        status.set_model(self.agent.model_name)
+        status.set_thinking(self.agent.thinking_level)
         status.set_session(
-            self.agent.session.metadata.id, self.agent.session.metadata.parent_session_id
+            self.agent.session_id,
+            self.agent.session_parent_id,
         )
+        status.set_extension_status(None)
 
         # Focus input
         self.query_one("#prompt-input", PromptInput).focus()
 
         # Load extensions if configured
-        if self.agent.config.extensions:
-            errors = await self.agent.load_extensions()
+        if self._bootstrap_config.extensions:
+            errors = await self.extension_host.load_extensions()
+            chat = self.query_one("#chat-view", ChatView)
             for error in errors:
                 chat.add_system_message(f"extension error: {error}")
-            commands = sorted(self.agent.extension_api.get_commands().keys())
+            commands = self.extension_host.command_names()
             self.query_one("#prompt-input", PromptInput).set_extension_commands(commands)
 
         # Show existing messages if resuming a session
         if self._session and self._session.messages:
-            self._render_session_messages(chat, self._session)
+            self._renderer.render_session_messages(self._session)
+
+        self._extension_widget_timer = self.set_interval(
+            0.2,
+            self._extension_bridge.render_widgets,
+        )
 
     @on(PromptInput.Submitted, "#prompt-input")
     async def on_input_submitted(self, event: PromptInput.Submitted) -> None:
@@ -328,138 +189,22 @@ class AgentApp(App[None]):
         self.query_one("#prompt-input", PromptInput).clear()
         chat = self.query_one("#chat-view", ChatView)
 
-        # Handle commands
-        if prompt.lower() == "/clear":
-            self.action_clear()
-            return
-        if prompt.lower() == "/new":
-            self.action_new()
-            return
-        if prompt.lower() == "/load":
-            self.push_screen(
-                SessionLoadModal(
-                    self.agent.config.session_dir,
-                    on_load=self._load_session_path,
-                )
-            )
-            return
-        if prompt.lower().startswith("/load "):
-            path_text = prompt[6:].strip()
-            if path_text:
-                self._load_session_path(Path(path_text).expanduser())
-            return
-        if prompt.lower() == "/resume":
-            self.push_screen(
-                SessionLoadModal(
-                    self.agent.config.session_dir,
-                    on_load=self._load_session_path,
-                )
-            )
-            return
-        if prompt.lower().startswith("/resume "):
-            path_text = prompt[8:].strip()
-            if path_text:
-                self._load_session_path(Path(path_text).expanduser())
-            return
-        if prompt.lower() == "/fork":
-            self.push_screen(
-                SessionForkModal(
-                    self.agent.session,
-                    on_fork=self._fork_from_message,
-                )
-            )
-            return
-        if prompt.lower().startswith("/fork "):
-            spec = prompt[6:].strip()
-            message_id = self._resolve_message_id(self.agent.session, spec)
-            if not message_id:
-                chat.add_system_message(f"could not resolve message: {spec}")
-                return
-            self._fork_from_message(message_id)
-            return
-        if prompt.lower() == "/tree":
-            self.push_screen(
-                SessionTreeModal(
-                    self.agent.session,
-                    on_select=self._set_leaf,
-                )
-            )
-            return
-        if prompt.lower().startswith("/tree "):
-            spec = prompt[6:].strip()
-            message_id = self._resolve_entry_id(self.agent.session, spec)
-            if not message_id:
-                chat.add_system_message(f"could not resolve entry: {spec}")
-                return
-            self._set_leaf(message_id)
-            return
-        if prompt.lower() == "/quit":
-            self.exit()
-            return
-        if prompt.lower() == "/help":
-            chat.add_system_message(
-                "ctrl+c quit | ctrl+l clear | /clear | /new | /load | /resume | /fork "
-                "| /tree | /context | /help | /model | /quit"
-            )
-            return
-        if prompt.lower() == "/context":
-            self.push_screen(ContextModal(self.agent))
-            return
-        if prompt.lower() == "/model":
-            self.push_screen(
-                ModelModal(
-                    self.agent.config,
-                    self.agent.provider,
-                    self._on_model_modal_change,
-                )
-            )
-            return
-        if prompt.lower().startswith("/model "):
-            model_name = prompt[7:].strip()
-            if model_name:
-                self._switch_model(model_name)
+        if await self._controller.handle_prompt_command(prompt):
             return
 
         # Add user message (special handling for $skill-name)
-        if not self._render_skill_invocation(prompt):
+        if not self._renderer.render_skill_invocation(prompt):
             chat.add_user_message(prompt)
 
         # Start processing - show thinking indicator if thinking is enabled
         self.is_processing = True
         thinking_enabled = (
-            self.agent.config.thinking_level.value != "off"
-            and self.agent.provider.supports_thinking()
+            self.agent.thinking_level.value != "off" and self.agent.supports_thinking()
         )
         chat.start_assistant_message(thinking=thinking_enabled)
 
         # Run agent in background
         self._run_agent(prompt)
-
-    def _render_skill_invocation(self, prompt: str) -> bool:
-        """Render a skill invocation block if prompt is $skill-name."""
-        if not prompt.startswith("$"):
-            return False
-
-        space_index = prompt.find(" ")
-        skill_name = prompt[1:] if space_index == -1 else prompt[1:space_index]
-        args = "" if space_index == -1 else prompt[space_index + 1 :].strip()
-
-        if not skill_name:
-            return False
-
-        skill = self._skill_loader.get(skill_name)
-        if not skill:
-            return False
-
-        try:
-            body = skill.read_body()
-        except Exception:
-            return False
-
-        content = f"References are relative to {skill.base_dir}.\n\n{body}"
-        chat = self.query_one("#chat-view", ChatView)
-        chat.add_skill_invocation(skill.name, content, str(skill.readme_path), args or None)
-        return True
 
     def _run_agent(self, prompt: str) -> None:
         """Run the agent loop."""
@@ -468,135 +213,20 @@ class AgentApp(App[None]):
 
     async def _agent_worker(self, prompt: str) -> None:
         """Execute agent and handle events."""
-        chat = self.query_one("#chat-view", ChatView)
-        in_thinking = False
-
         try:
-            async for chunk in self.agent.run(prompt, cancel_event=self._cancel_event):
-                # Check if cancelled between chunks
-                if self._cancel_event and self._cancel_event.is_set():
-                    break
-
-                match chunk:
-                    case ThinkingDeltaChunk(payload=thinking):
-                        if not in_thinking:
-                            await chat.start_thinking()
-                            in_thinking = True
-                        chat.append_to_thinking(thinking.text)
-                    case TextDeltaChunk(payload=text):
-                        if in_thinking:
-                            chat.end_thinking()
-                            in_thinking = False
-                        await chat.append_to_assistant(text)
-                    case ToolCallStartChunk(payload=tool_call_start):
-                        # Tool call starting - show early indicator
-                        if in_thinking:
-                            chat.end_thinking()
-                            in_thinking = False
-                        chat.end_assistant_message()
-                        await chat.start_tool_call(tool_call_start.id, tool_call_start.name)
-                    case ToolCallChunk(payload=tool_call):
-                        # Tool call complete with arguments
-                        if in_thinking:
-                            chat.end_thinking()
-                            in_thinking = False
-                        chat.end_assistant_message()
-                        chat.complete_tool_call(tool_call)
-                    case ToolResultChunk(payload=tool_result):
-                        chat.set_tool_result(tool_result.tool_call_id, tool_result.result)
-                    case MessageChunk(payload=message) if message.role.value == "system":
-                        chat.add_system_message(message.content)
-                    case _:
-                        pass
-
-            if in_thinking:
-                chat.end_thinking()
-            chat.end_assistant_message()
-
-        except Exception as e:
-            if in_thinking:
-                chat.end_thinking()
-            chat.end_assistant_message()
-            chat.add_system_message(f"error: {type(e).__name__}: {e}")
-
+            await self._renderer.render_agent_run(prompt, self._cancel_event)
         finally:
             self.is_processing = False
             self._cancel_event = None
-            # Update token count in status bar
-            status = self.query_one("#status-line", StatusBar)
-            status.set_tokens(self.agent.total_tokens, self.agent.config.context_max_tokens)
             self.query_one("#prompt-input", PromptInput).focus()
 
     def action_clear(self) -> None:
         """Clear chat history."""
-        chat = self.query_one("#chat-view", ChatView)
-        chat.clear_chat()
-        chat.add_system_message("cleared")
+        self._controller.action_clear()
 
-    def action_new(self) -> None:
+    async def action_new(self) -> None:
         """Start a new session."""
-        self.agent.new_session()
-        self._session = self.agent.session
-        chat = self.query_one("#chat-view", ChatView)
-        chat.clear_chat()
-        self._render_banner(chat)
-        chat.add_system_message("new session started")
-        status = self.query_one("#status-line", StatusBar)
-        status.set_session(
-            self.agent.session.metadata.id, self.agent.session.metadata.parent_session_id
-        )
-        status.set_tokens(self.agent.total_tokens, self.agent.config.context_max_tokens)
-
-    def _switch_model(self, model_name: str) -> None:
-        """Switch to a different model."""
-        chat = self.query_one("#chat-view", ChatView)
-        status = self.query_one("#status-line", StatusBar)
-
-        # Update model via agent (persists metadata + clamps thinking)
-        try:
-            self.agent.set_model(model_name)
-        except ValueError as err:
-            chat.add_system_message(str(err))
-            return
-
-        # Update UI
-        status.set_model(model_name)
-        status.set_thinking(self.agent.config.thinking_level)
-        chat.add_system_message(f"switched to {model_name}")
-
-    def _switch_thinking(self, level_name: str) -> None:
-        """Switch thinking level."""
-        chat = self.query_one("#chat-view", ChatView)
-        status = self.query_one("#status-line", StatusBar)
-
-        # Check if model supports thinking
-        if not self.agent.provider.supports_thinking():
-            chat.add_system_message(f"model {self.agent.provider.model} does not support thinking")
-            chat.add_system_message("supported: claude-*, o1-*, o3-*, gpt-5-*")
-            return
-
-        try:
-            level = ThinkingLevel(level_name)
-        except ValueError:
-            valid = ", ".join(t.value for t in ThinkingLevel)
-            chat.add_system_message(f"invalid thinking level: {level_name}")
-            chat.add_system_message(f"valid levels: {valid}")
-            return
-
-        # Update config (agent reads this each turn)
-        self.agent.config.thinking_level = level
-
-        # Update status bar
-        status.set_thinking(level)
-        chat.add_system_message(f"thinking level: {level.value}")
-
-    def _on_model_modal_change(self, model: str | None, thinking: ThinkingLevel | None) -> None:
-        """Callback when model modal changes settings."""
-        if model:
-            self._switch_model(model)
-
-        if thinking:
-            self._switch_thinking(thinking.value)
+        await self._controller.action_new()
 
     def action_escape_pressed(self) -> None:
         """Handle escape key - cancel processing or focus input."""
@@ -617,5 +247,19 @@ class AgentApp(App[None]):
 
     async def on_unmount(self) -> None:
         """Clean up on exit."""
-        if self._agent:
-            await self._agent.close()
+        if self._extension_widget_timer:
+            self._extension_widget_timer.stop()
+        if self._runtime:
+            await self._runtime.agent.close()
+
+    async def push_extension_screen(self, screen: Any) -> object | None:
+        """Push a modal screen and await its dismissal without Textual workers."""
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[object | None] = loop.create_future()
+
+        def _done(result: object | None) -> None:
+            if not future.done():
+                future.set_result(result)
+
+        self.push_screen(screen, callback=_done)
+        return await future

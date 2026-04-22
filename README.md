@@ -10,7 +10,7 @@ It started as a single‑file agent built from notes and experiments, and grew i
 
 I read a [couple](https://ampcode.com/how-to-build-an-agent) of [posts](https://ghuntley.com/agent/) on building agents that made me want to own the full harness—not just use a product. I wanted something I could understand end‑to‑end, tweak freely, and grow as I learned. This project is the result: a readable, hackable agent loop with modular pieces I can keep expanding.
 
-This is also a unique project in that it is self‑bootstrapped: I built the initial agent using Codex, then added the tools and loop needed for it to help build itself. Most new features I add now are developed with the agent itself.
+This is also a unique project in that it is self‑bootstrapped: I built the initial agent using Codex, then added the tools and loop needed for it to help build itself. Most new features are developed with the agent itself.
 
 <p align="center">
   <img src="examples/usage/lisp-interpreter/demo.gif" alt="Building a Lisp interpreter from a problem spec" width="700">
@@ -24,8 +24,8 @@ This is also a unique project in that it is self‑bootstrapped: I built the ini
 - Context compaction to stay inside token limits
 - Skills system (Markdown + YAML frontmatter)
 - Prompt templates with slash commands and argument substitution
-- Extensions API (events, custom tools, custom commands)
-- Interactive TUI (Textual) + headless CLI mode
+- Extensions API with lifecycle events, runtime/session/model/tool controls, and TUI UI hooks
+- Interactive TUI (Textual) + headless CLI mode + local web delivery
 - Config layering (global, project, env vars)
 - Built‑in tool suite: read/write/edit/bash/grep/find/ls
 
@@ -36,24 +36,25 @@ This is also a unique project in that it is self‑bootstrapped: I built the ini
 2. **Session + context guardrails**
    - The user message is persisted to the JSONL session; context is compacted if needed.
 3. **Prompt construction & model stream**
-   - System prompt is built from tools + skills + context files; model response streams back events.
+   - System prompt is built from active tools + skills + context files; model response streams back events.
 4. **Tool execution cycle**
    - Tool calls are parsed, validated, executed, and tool results are appended back into the conversation.
 5. **Turn finalization**
-   - Events are emitted, messages are persisted, and token stats are updated.
+   - Events are emitted, queued extension follow-up messages are drained, and token stats are updated.
 
 ## High‑level architecture
 
 ```
-core/        Agent loop, sessions, context compaction, prompts
+runtime/     Agent loop, sessions, context compaction, prompts
 llm/         Provider adapters + streaming events
 config/      Runtime config loading
 tools/       Built‑in tool registry + implementations
 skills/      Skill discovery + validation
 prompts/     Prompt templates + argument expansion
-extensions/  Hooks + custom tools/commands
+extensions/  Event hooks + runtime/session/model/tool/UI host
 tui/         Textual UI (interactive mode)
-cli.py       Headless CLI entry point
+cli/         Typer command surface + headless/session helpers
+web/         FastAPI + WebSocket delivery shell
 ```
 
 ## Quickstart
@@ -69,6 +70,12 @@ Headless (single prompt):
 
 ```bash
 make run-headless PROMPT="List all Python files"
+```
+
+Web delivery:
+
+```bash
+make run-web
 ```
 
 ## Development
@@ -111,6 +118,8 @@ Extensions can:
 - Modify context before the LLM call
 - Intercept tool calls/results
 - Register new tools and slash commands
+- Inspect and mutate session/model/tool state through `ctx`
+- Use TUI UI helpers like `notify`, `input`, `confirm`, `select`, `present`, and `set_widget`
 
 See `docs/extensions.md` for the API shape.
 
@@ -118,6 +127,9 @@ See `docs/extensions.md` for the API shape.
 
 - [`docs/README.md`](docs/README.md) — index of all docs
 - [`docs/architecture.md`](docs/architecture.md) — system overview and module responsibilities
+- [`docs/delivery.md`](docs/delivery.md) — delivery shells: TUI, headless CLI, and web
+- [`docs/web.md`](docs/web.md) — local FastAPI/WebSocket web delivery shell
+- [`docs/cli.md`](docs/cli.md) — Typer command surface, headless mode, and session commands
 - [`docs/agent-loop.md`](docs/agent-loop.md) — detailed step‑by‑step loop walkthrough
 - [`docs/tools.md`](docs/tools.md) — tool schemas, registry, and built‑ins
 - [`docs/skills.md`](docs/skills.md) — skill format, validation rules, search paths
@@ -138,9 +150,11 @@ See `docs/extensions.md` for the API shape.
   - [`examples/prompts/review.md`](examples/prompts/review.md)
   - [`examples/prompts/summarize-changes.md`](examples/prompts/summarize-changes.md)
 - Extensions:
-  - [`examples/extensions/protected-paths.py`](examples/extensions/protected-paths.py)
-  - [`examples/extensions/commit-guard.py`](examples/extensions/commit-guard.py)
-  - [`examples/extensions/todo-capture.py`](examples/extensions/todo-capture.py)
+  - [`examples/extensions/protected-paths.md`](examples/extensions/protected-paths.md)
+  - [`examples/extensions/commit-guard.md`](examples/extensions/commit-guard.md)
+  - [`examples/extensions/mcp-adapter.md`](examples/extensions/mcp-adapter.md)
+  - [`examples/extensions/plan-mode.md`](examples/extensions/plan-mode.md)
+  - [`examples/extensions/subagents.md`](examples/extensions/subagents.md)
 - Usage:
   - [Lisp interpreter](examples/usage/lisp-interpreter/) — builds a tiny Lisp interpreter in TypeScript from a problem spec
 

@@ -24,6 +24,9 @@ run-headless: ## Run the agent in headless mode (PROMPT="...")
 	fi
 	@uv run agent run --headless "$(PROMPT)"
 
+run-web: ## Run the local web delivery server
+	@uv run agent web
+
 ##@ Linting
 lint: ## Run linters and type checks
 	@uv run ruff check src/agent tests examples

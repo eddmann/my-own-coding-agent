@@ -3,50 +3,80 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from agent.runtime.hooks import (
+    InputResolution,
+    ToolAuthorization,
+    ToolCallRequest,
+    ToolResultData,
+    ToolResultUpdate,
+)
 
 if TYPE_CHECKING:
-    from agent.core.message import Message
+    from agent.runtime.message import Message
+
+
+# Stable extension event contract. These names are part of the supported API.
+PUBLIC_EXTENSION_EVENTS: frozenset[str] = frozenset(
+    {
+        "input",
+        "context",
+        "tool_call",
+        "tool_result",
+        "session_start",
+        "session_end",
+        "turn_start",
+        "turn_end",
+        "agent_start",
+        "agent_end",
+        "model_select",
+        "compaction",
+    }
+)
+
+# Internal runtime/rendering events. Extensions may technically observe them,
+# but they are not part of the stable public API and may change without notice.
+INTERNAL_EXTENSION_EVENTS: frozenset[str] = frozenset(
+    {
+        "message_start",
+        "message_update",
+        "message_end",
+        "thinking_start",
+        "thinking_delta",
+        "thinking_end",
+        "tool_execution_start",
+        "tool_execution_update",
+        "tool_execution_end",
+    }
+)
 
 
 # --- Tool Hook Events ---
 
 
 @dataclass(slots=True)
-class ToolCallEvent:
+class ToolCallEvent(ToolCallRequest):
     """Fired before tool execution - extensions can block."""
 
-    tool_name: str = ""
-    tool_call_id: str = ""
-    input: dict[str, Any] = field(default_factory=dict)
     type: str = field(default="tool_call", init=False)
 
 
 @dataclass(slots=True)
-class ToolCallResult:
+class ToolCallResult(ToolAuthorization):
     """Return from tool_call handler to block execution."""
-
-    block: bool = False
-    reason: str | None = None
 
 
 @dataclass(slots=True)
-class ToolResultEvent:
+class ToolResultEvent(ToolResultData):
     """Fired after tool execution - extensions can modify result."""
 
-    tool_name: str = ""
-    tool_call_id: str = ""
-    content: str = ""
-    is_error: bool = False
     type: str = field(default="tool_result", init=False)
 
 
 @dataclass(slots=True)
-class ToolResultModification:
+class ToolResultModification(ToolResultUpdate):
     """Return from tool_result handler to modify the result."""
-
-    content: str | None = None
-    is_error: bool | None = None
 
 
 # --- Context Hook Events ---
@@ -80,9 +110,5 @@ class InputEvent:
 
 
 @dataclass(slots=True)
-class InputResult:
-    """Return from input handler to transform or block input."""
-
-    text: str | None = None  # Modified text, or None to keep original
-    block: bool = False
-    reason: str | None = None
+class InputResult(InputResolution):
+    """Return from input handler to transform, block, or handle input."""

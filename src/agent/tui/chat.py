@@ -9,7 +9,7 @@ from textual.containers import ScrollableContainer
 from textual.widgets import Static
 
 if TYPE_CHECKING:
-    from agent.core.message import ToolCall
+    from agent.runtime.message import ToolCall
 
 # Truncate long outputs for display
 MAX_DISPLAY_CHARS = 5000

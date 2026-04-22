@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agent.config import Config
-from agent.core.agent import Agent
 from agent.extensions.api import ExtensionAPI
+from agent.extensions.host import ExtensionHost
 from agent.extensions.loader import ExtensionLoader
+from agent.runtime.agent import Agent
 from tests.test_doubles.llm_provider_fake import LLMProviderFake
 from tests.test_doubles.llm_stream_builders import make_text_events, make_tool_call_events
 
@@ -29,7 +30,9 @@ def build_agent(temp_dir, scripts):
     )
     fake = LLMProviderFake(scripts)
     agent = Agent(config.to_agent_settings(), fake)
-    return agent, fake
+    host = ExtensionHost(agent)
+    agent.set_hooks(host)
+    return agent, fake, host
 
 
 def write_extension(path: Path, content: str) -> None:
@@ -113,8 +116,8 @@ async def test_extension_blocks_tool_execution(temp_dir):
 
     touch_file = temp_dir / "blocked.txt"
     scripts = [make_tool_call_events("call_1", "bash", {"command": f"touch {touch_file}"})]
-    agent, _ = build_agent(temp_dir, scripts)
-    await agent.load_extensions([ext_path])
+    agent, _, host = build_agent(temp_dir, scripts)
+    await host.load_extensions([ext_path])
 
     async for _ in agent.run("run bash"):
         pass
@@ -146,8 +149,8 @@ async def test_extension_modifies_tool_result(temp_dir):
     test_file.write_text("secret")
 
     scripts = [make_tool_call_events("call_1", "read", {"path": str(test_file)})]
-    agent, _ = build_agent(temp_dir, scripts)
-    await agent.load_extensions([ext_path])
+    agent, _, host = build_agent(temp_dir, scripts)
+    await host.load_extensions([ext_path])
 
     async for _ in agent.run("read file"):
         pass
@@ -183,8 +186,8 @@ async def test_extension_registers_custom_tool(temp_dir):
         """,
     )
 
-    agent, _ = build_agent(temp_dir, [make_text_events("ok")])
-    await agent.load_extensions([ext_path])
+    agent, _, host = build_agent(temp_dir, [make_text_events("ok")])
+    await host.load_extensions([ext_path])
 
     assert "echo" in agent.tools
     result = await agent.tools.execute("echo", {"text": "hi"})

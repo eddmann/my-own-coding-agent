@@ -10,8 +10,33 @@ Screen {
 
 #chat-view {
     height: 1fr;
+    width: 1fr;
     padding: 1 0;
     scrollbar-size: 1 1;
+}
+
+.extension-slot {
+    background: $surface;
+    color: $foreground-muted;
+}
+
+.hidden {
+    display: none;
+}
+
+#extension-right-panel {
+    width: 32;
+    height: 1fr;
+    padding: 1 2;
+    border-left: solid $panel;
+}
+
+#extension-footer {
+    dock: bottom;
+    height: auto;
+    padding: 0 2;
+    background: $surface;
+    color: $foreground-muted;
 }
 
 .message-user {
@@ -145,6 +170,96 @@ Screen {
 #status-right {
     width: auto;
     text-align: right;
+}
+
+/* Extension UI Modals */
+PromptModal,
+ConfirmModal,
+SelectModal,
+PresentedViewModal {
+    align: center middle;
+}
+
+#extension-modal {
+    width: 80%;
+    max-width: 70;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: round $primary;
+    padding: 1 2;
+}
+
+.extension-prompt-modal {
+    max-width: 62;
+    padding: 2 3;
+    background: $panel;
+    border-title-color: $primary;
+}
+
+.extension-modal-kicker {
+    color: $secondary;
+    text-style: bold;
+    margin: 0 0 1 0;
+}
+
+.extension-modal-title {
+    margin: 0 0 1 0;
+    text-style: bold;
+    color: $primary;
+}
+
+.extension-modal-subtitle {
+    color: $foreground-muted;
+    margin: 0 0 1 0;
+}
+
+.extension-modal-hint {
+    margin: 1 0 0 0;
+    color: $foreground-disabled;
+}
+
+.extension-input-shell {
+    border: round $secondary;
+    background: $surface;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
+
+#extension-prompt-input {
+    border: none;
+    background: transparent;
+}
+
+#extension-prompt-input:focus {
+    border: none;
+}
+
+.extension-modal-actions {
+    width: 100%;
+    height: auto;
+    align-horizontal: left;
+}
+
+.extension-modal-actions Button {
+    margin-right: 1;
+}
+
+.extension-presented-control-label {
+    color: $secondary;
+    margin: 0 0 1 0;
+}
+
+.extension-presented-select-content {
+    height: auto;
+    max-height: 12;
+    margin: 0 0 1 0;
+}
+
+#extension-select-content,
+#extension-presented-scroll {
+    height: 1fr;
+    margin: 0 0 1 0;
 }
 
 /* Context Modal */

@@ -13,7 +13,7 @@ from textual.widgets import Static, TabbedContent, TabPane
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
-    from agent.core.agent import Agent
+    from agent.runtime.agent import Agent
 
 
 class ContextModal(ModalScreen[None]):
@@ -55,18 +55,18 @@ class ContextModal(ModalScreen[None]):
 
         # Model section
         lines.append("[bold cyan]MODEL[/]")
-        lines.append(f"  Provider: {self._agent.provider.name}")
-        lines.append(f"  Model: {self._agent.provider.model}")
-        lines.append(f"  Thinking: {self._agent.config.thinking_level.value}")
-        lines.append(f"  Temperature: {self._agent.config.temperature}")
-        lines.append(f"  Max Output Tokens: {self._agent.config.max_output_tokens}")
+        lines.append(f"  Provider: {self._agent.provider_name}")
+        lines.append(f"  Model: {self._agent.model_name}")
+        lines.append(f"  Thinking: {self._agent.thinking_level.value}")
+        lines.append(f"  Temperature: {self._agent.temperature}")
+        lines.append(f"  Max Output Tokens: {self._agent.max_output_tokens}")
         lines.append("")
 
         # Token usage
         lines.append("[bold cyan]TOKEN USAGE[/]")
         current_tokens = self._agent.total_tokens
-        context_max_tokens = self._agent.config.context_max_tokens
-        reserve = self._agent.context.reserve_tokens
+        context_max_tokens = self._agent.context_max_tokens
+        reserve = self._agent.context_reserve_tokens
         pct = (current_tokens / context_max_tokens * 100) if context_max_tokens > 0 else 0
         available = context_max_tokens - reserve
         lines.append(f"  Current: {current_tokens:,} / {context_max_tokens:,} ({pct:.1f}%)")
@@ -102,13 +102,13 @@ class ContextModal(ModalScreen[None]):
         lines.append("")
 
         # Tools
-        tools = self._agent.tools.list_tools()
+        tools = self._agent.list_tools()
         lines.append(f"[bold cyan]TOOLS[/] ({len(tools)})")
         lines.append(f"  {', '.join(sorted(tools))}")
         lines.append("")
 
         # Skills
-        skills = list(self._agent.skill_loader.skills.values())
+        skills = self._agent.list_skills()
         lines.append(f"[bold cyan]SKILLS[/] ({len(skills)})")
         if skills:
             for skill in sorted(skills, key=lambda s: s.name):
@@ -118,7 +118,7 @@ class ContextModal(ModalScreen[None]):
         lines.append("")
 
         # Templates
-        templates = list(self._agent.template_loader.templates.values())
+        templates = self._agent.list_templates()
         lines.append(f"[bold cyan]TEMPLATES[/] ({len(templates)})")
         if templates:
             for tmpl in sorted(templates, key=lambda t: t.name):

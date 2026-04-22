@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 
 from agent.config import Config, ProviderConfig
-from agent.core.settings import ThinkingLevel
+from agent.runtime.settings import ThinkingLevel
 
 
 def test_legacy_max_tokens_maps_to_context_and_output_defaults(temp_dir, monkeypatch):

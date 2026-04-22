@@ -19,9 +19,9 @@ from .responses import OpenAIResponsesProvider
 if TYPE_CHECKING:
     import httpx
 
-    from agent.core.message import Message
     from agent.llm.events import StreamOptions
     from agent.llm.stream import AssistantMessageEventStream
+    from agent.runtime.message import Message
 
 
 @dataclass(slots=True)

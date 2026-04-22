@@ -8,7 +8,6 @@ import json
 import httpx
 import pytest
 
-from agent.core.message import Message, Role, ToolCall
 from agent.llm.events import StreamOptions, ToolCallBlock
 from agent.llm.openai_codex import OPENAI_CODEX_BASE_URL, OpenAICodexProvider
 from agent.llm.openai_codex.oauth import (
@@ -16,6 +15,7 @@ from agent.llm.openai_codex.oauth import (
     load_oauth_credentials,
     save_oauth_credentials,
 )
+from agent.runtime.message import Message, Role, ToolCall
 
 
 def _sse_payload(events: list[dict[str, object]]) -> bytes:

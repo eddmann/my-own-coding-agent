@@ -87,6 +87,7 @@ Handlers receive `ctx`, which exposes the host capability surface:
   - `set_active(names)`
   - `register(tool)`
 - `ctx.ui`
+  - bound by the active delivery shell, such as the TUI or web host
   - `notify(message, level="info")`
   - `set_status(text)`
   - `input(prompt, default=None)`

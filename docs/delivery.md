@@ -83,10 +83,11 @@ Those belong below delivery.
 
 ## Delivery shape
 
-The delivery layer exists in two places:
+The delivery layer exists in three places:
 
 - `src/agent/cli/`
-- `src/agent/tui/app.py`
+- `src/agent/tui/`
+- `src/agent/web/`
 
 The boundary is:
 

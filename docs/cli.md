@@ -1,6 +1,6 @@
 # CLI
 
-The CLI lives in `src/agent/cli/` and is the lighter delivery surface alongside the TUI.
+The CLI lives in `src/agent/cli/` and is the lighter delivery surface alongside the TUI and web shell.
 
 ## Structure
 

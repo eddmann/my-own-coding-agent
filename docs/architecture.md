@@ -107,4 +107,4 @@ The system has three delivery shells:
 - a Typer CLI with headless mode and session utilities
 - a FastAPI-backed web shell with a browser client
 
-Both sit on top of the same runtime and extension host.
+All three sit on top of the same runtime and extension host.

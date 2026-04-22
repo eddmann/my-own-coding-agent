@@ -24,7 +24,7 @@ This is also a unique project in that it is self‑bootstrapped: I built the ini
 - Context compaction to stay inside token limits
 - Skills system (Markdown + YAML frontmatter)
 - Prompt templates with slash commands and argument substitution
-- Extensions API with lifecycle events, runtime/session/model/tool controls, and TUI UI hooks
+- Extensions API with lifecycle events, runtime/session/model/tool controls, and delivery-provided UI hooks
 - Interactive TUI (Textual) + headless CLI mode + local web delivery
 - Config layering (global, project, env vars)
 - Built‑in tool suite: read/write/edit/bash/grep/find/ls
@@ -119,7 +119,7 @@ Extensions can:
 - Intercept tool calls/results
 - Register new tools and slash commands
 - Inspect and mutate session/model/tool state through `ctx`
-- Use TUI UI helpers like `notify`, `input`, `confirm`, `select`, `present`, and `set_widget`
+- Use delivery-provided UI helpers like `notify`, `input`, `confirm`, `select`, `present`, and `set_widget`
 
 See `docs/extensions.md` for the API shape.
 

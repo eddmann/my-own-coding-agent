@@ -16,7 +16,7 @@ The web package is split by delivery responsibility:
 
 ### HTTP
 
-The first-pass HTTP surface provides:
+The HTTP surface provides:
 
 - `GET /api/health`
 - `GET /api/sessions`

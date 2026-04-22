@@ -170,6 +170,47 @@ def test_cli_tree_sets_leaf_and_starts_tui(temp_dir, monkeypatch):
     assert updated.messages[0].content == "first"
 
 
+def test_cli_tree_numeric_target_uses_index_before_id_prefix(temp_dir, monkeypatch):
+    home = temp_dir / "home"
+    project = temp_dir / "project"
+    home.mkdir()
+    project.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(project)
+
+    session = Session.new(temp_dir)
+    first = Message.user("first").model_copy(update={"id": "abc111111111"})
+    second = Message.assistant("second").model_copy(
+        update={"id": "0bc222222222", "parent_id": first.id}
+    )
+    session.append(first)
+    session.append(second)
+
+    seen: dict[str, object] = {}
+    sentinel_provider = object()
+
+    def fake_create_provider(config):
+        return sentinel_provider
+
+    def fake_run_tui(config, session, llm_provider):
+        seen["session"] = session
+        seen["provider"] = llm_provider
+
+    monkeypatch.setattr(cli, "_create_llm_provider", fake_create_provider)
+    monkeypatch.setattr(cli, "_run_tui", fake_run_tui)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.app,
+        ["tree", "--session", str(session.path), "--to", "0"],
+    )
+
+    assert result.exit_code == 0
+    updated = seen["session"]
+    assert isinstance(updated, Session)
+    assert [message.content for message in updated.messages] == ["first"]
+
+
 def test_cli_sessions_shows_no_sessions_when_empty(temp_dir, monkeypatch):
     home = temp_dir / "home"
     project = temp_dir / "project"

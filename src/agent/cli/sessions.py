@@ -57,17 +57,17 @@ def resolve_entry_id(session: Session, spec: str) -> str | None:
             if isinstance(entry, MessageEntry) and entry.message.role == Role.ASSISTANT:
                 return entry.id
         return entries[-1].id
+    if spec.isdigit():
+        msg_entries = [entry for entry in entries if isinstance(entry, MessageEntry)]
+        idx = int(spec)
+        if 0 <= idx < len(msg_entries):
+            return msg_entries[idx].id
     for entry in entries:
         if entry.id == spec:
             return entry.id
     matches = [entry for entry in entries if entry.id.startswith(spec)]
     if len(matches) == 1:
         return matches[0].id
-    if spec.isdigit():
-        msg_entries = [entry for entry in entries if isinstance(entry, MessageEntry)]
-        idx = int(spec)
-        if 0 <= idx < len(msg_entries):
-            return msg_entries[idx].id
     return None
 
 

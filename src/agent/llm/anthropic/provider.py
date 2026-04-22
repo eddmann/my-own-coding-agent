@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 
 import httpx
 
-from agent.core.message import Message, Role
-from agent.core.settings import THINKING_BUDGETS, ThinkingLevel
 from agent.llm.defaults import DEFAULT_ANTHROPIC_MODEL
 from agent.llm.events import (
     AssistantMetadataEvent,
@@ -52,6 +50,8 @@ from agent.llm.events import (
 from agent.llm.pricing import get_pricing
 from agent.llm.retry import RetryConfig, with_retry
 from agent.llm.stream import AssistantMessageEventStream
+from agent.runtime.message import Message, Role
+from agent.runtime.settings import THINKING_BUDGETS, ThinkingLevel
 
 from .oauth import load_oauth_credentials, refresh_anthropic_token, save_oauth_credentials
 

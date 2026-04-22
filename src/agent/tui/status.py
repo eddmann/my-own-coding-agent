@@ -11,7 +11,7 @@ from textual.widgets import Static
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
-    from agent.core.settings import ThinkingLevel
+    from agent.runtime.settings import ThinkingLevel
 
 
 class StatusBar(Horizontal):
@@ -23,6 +23,7 @@ class StatusBar(Horizontal):
         self._thinking = "off"
         self._tokens = 0
         self._max_tokens = 0
+        self._extension_status: str | None = None
         self._session_id: str | None = None
         self._session_parent: str | None = None
 
@@ -52,6 +53,9 @@ class StatusBar(Horizontal):
         elif self._tokens > 0:
             left += f"  {self._tokens:,} tokens"
 
+        if self._extension_status:
+            left += f"  status:{self._extension_status}"
+
         self.query_one("#status-left", Static).update(left)
         self.query_one("#status-right", Static).update(os.getcwd())
 
@@ -75,4 +79,9 @@ class StatusBar(Horizontal):
         """Set the session display."""
         self._session_id = session_id
         self._session_parent = parent_id
+        self._update_display()
+
+    def set_extension_status(self, text: str | None) -> None:
+        """Set extension-provided status text."""
+        self._extension_status = text
         self._update_display()

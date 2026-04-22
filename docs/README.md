@@ -3,11 +3,14 @@
 Start here if you’re new to the project.
 
 - [`architecture.md`](architecture.md) — system overview and module responsibilities
+- [`delivery.md`](delivery.md) — TUI, headless CLI, and web delivery surfaces over the same runtime
+- [`cli.md`](cli.md) — Typer command surface, headless mode, and session utilities
+- [`web.md`](web.md) — FastAPI/WebSocket delivery shell and browser protocol
 - [`agent-loop.md`](agent-loop.md) — step‑by‑step loop walkthrough
 - [`tools.md`](tools.md) — tool schemas, registry, and built‑ins
 - [`skills.md`](skills.md) — skill format, validation rules, search paths
 - [`prompts.md`](prompts.md) — template format and argument expansion
-- [`extensions.md`](extensions.md) — extension API and lifecycle hooks
+- [`extensions.md`](extensions.md) — extension host API, lifecycle hooks, and UI surface
 - [`llm.md`](llm.md) — provider adapters and streaming events
 - [`tui.md`](tui.md) — Textual UI behavior and commands
 - [`configuration.md`](configuration.md) — config files, env vars, context files
@@ -21,6 +24,7 @@ Use the Makefile targets where possible:
 make deps
 make run
 make run-headless PROMPT="List all Python files"
+make run-web
 make test
 make lint
 make format
@@ -38,5 +42,12 @@ make can-release
   - [`examples/prompts/summarize-changes.md`](../examples/prompts/summarize-changes.md)
 - Extensions:
   - [`examples/extensions/protected-paths.py`](../examples/extensions/protected-paths.py)
+  - [`examples/extensions/protected-paths.md`](../examples/extensions/protected-paths.md)
   - [`examples/extensions/commit-guard.py`](../examples/extensions/commit-guard.py)
-  - [`examples/extensions/todo-capture.py`](../examples/extensions/todo-capture.py)
+  - [`examples/extensions/commit-guard.md`](../examples/extensions/commit-guard.md)
+  - [`examples/extensions/mcp-adapter.py`](../examples/extensions/mcp-adapter.py)
+  - [`examples/extensions/mcp-adapter.md`](../examples/extensions/mcp-adapter.md)
+  - [`examples/extensions/plan-mode.py`](../examples/extensions/plan-mode.py)
+  - [`examples/extensions/plan-mode.md`](../examples/extensions/plan-mode.md)
+  - [`examples/extensions/subagents.py`](../examples/extensions/subagents.py)
+  - [`examples/extensions/subagents.md`](../examples/extensions/subagents.md)

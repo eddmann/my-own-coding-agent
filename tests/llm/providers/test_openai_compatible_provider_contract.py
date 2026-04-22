@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from agent.core.message import Message
 from agent.llm.events import StreamOptions, TextBlock, ToolCallBlock
 from agent.llm.openai_compat import OpenAICompatibleProvider
 from agent.llm.retry import RetryConfig
+from agent.runtime.message import Message
 
 
 def _sse_payload(events: list[dict[str, object]]) -> bytes:

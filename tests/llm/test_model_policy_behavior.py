@@ -1,12 +1,12 @@
 """Behavior tests for model capability policy."""
 
-from agent.core.settings import ThinkingLevel, get_available_thinking_levels
 from agent.llm.models import (
     is_model_valid_for_provider,
     resolve_capability_provider,
     supports_reasoning,
     supports_xhigh,
 )
+from agent.runtime.settings import ThinkingLevel, get_available_thinking_levels
 
 
 class TestModelCapabilities:

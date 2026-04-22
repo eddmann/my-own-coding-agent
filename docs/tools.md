@@ -22,4 +22,18 @@ Tools are Pydantic‑typed units of capability with OpenAI‑style JSON schemas.
 
 ## Extending tools
 
-Extensions can register tools via `ExtensionAPI.register_tool()`. Once registered, they are treated exactly like built‑ins and appear in the system prompt tool list.
+Extensions can register tools in two ways:
+
+- `ExtensionAPI.register_tool()` during extension setup
+- `ctx.tools.register(tool)` at runtime
+
+Once registered, they are treated exactly like built‑ins and appear in the system prompt tool list for future turns.
+
+## Active tools
+
+The registry also tracks an active tool subset.
+
+- By default, all registered tools are active.
+- `ctx.tools.set_active([...])` lets extensions narrow the tools exposed to the model.
+- The system prompt is refreshed when the active tool set changes.
+- Inactive tools are omitted from provider tool schemas and cannot be executed through the registry.

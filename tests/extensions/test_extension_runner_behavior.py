@@ -7,10 +7,7 @@ import asyncio
 import pytest
 
 from agent.config import Config
-from agent.core.agent import Agent
-from agent.core.events import AgentStartEvent
-from agent.core.message import Message
-from agent.extensions import ExtensionAPI, ExtensionRunner
+from agent.extensions import ExtensionAPI, ExtensionHost, ExtensionRunner
 from agent.extensions.types import (
     ContextModification,
     InputResult,
@@ -19,6 +16,9 @@ from agent.extensions.types import (
     ToolResultEvent,
     ToolResultModification,
 )
+from agent.runtime.agent import Agent
+from agent.runtime.events import AgentStartEvent
+from agent.runtime.message import Message
 from tests.test_doubles.llm_provider_fake import LLMProviderFake
 
 
@@ -34,7 +34,9 @@ def build_runner(temp_dir) -> ExtensionRunner:
         LLMProviderFake([], name="openai", model="gpt-4o"),
         cwd=temp_dir,
     )
-    return ExtensionRunner(ExtensionAPI(), agent)
+    host = ExtensionHost(agent)
+    agent.set_hooks(host)
+    return ExtensionRunner(ExtensionAPI(), host)
 
 
 @pytest.mark.asyncio
@@ -143,6 +145,18 @@ async def test_emit_input_returns_transformed_text_when_not_blocked(temp_dir):
     assert result is not None
     assert result.text == "HELLO"
     assert result.block is False
+
+
+@pytest.mark.asyncio
+async def test_emit_input_preserves_handled_result(temp_dir):
+    runner = build_runner(temp_dir)
+    runner.api.on("input", lambda _event, _ctx: InputResult(handled=True, handled_output="done"))
+
+    result = await runner.emit_input("hello")
+
+    assert result is not None
+    assert result.handled is True
+    assert result.handled_output == "done"
 
 
 @pytest.mark.asyncio

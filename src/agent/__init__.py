@@ -3,9 +3,9 @@
 __version__ = "0.1.0"
 
 from agent.config import Config
-from agent.core.agent import Agent
-from agent.core.message import Message, Role, ToolCall
-from agent.core.session import Session
+from agent.runtime.agent import Agent
+from agent.runtime.message import Message, Role, ToolCall
+from agent.runtime.session import Session
 
 __all__ = [
     "Agent",

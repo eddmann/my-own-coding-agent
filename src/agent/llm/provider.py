@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from agent.core.message import Message
     from agent.llm.events import StreamOptions
     from agent.llm.stream import AssistantMessageEventStream
+    from agent.runtime.message import Message
 
 
 @runtime_checkable

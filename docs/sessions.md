@@ -23,7 +23,7 @@ Each session is a JSONL file. The first line is the session header, the rest are
 ## Capabilities
 
 **Resume**
-Load a previous session and continue from its active leaf.
+Load an existing session and continue from its active leaf.
 
 **Tree (in-place branching)**
 Entries form a tree via `id` and `parentId`. The active branch is defined by the latest `session_state` entry. Context is built by walking from the leaf to the root and using only that path.

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from typer.testing import CliRunner
 
 from agent import cli
-from agent.core.session import Session
+from agent.runtime.session import Session
 
 if TYPE_CHECKING:
     from pathlib import Path

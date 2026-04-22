@@ -12,7 +12,7 @@ Providers implement a shared interface (`LLMProvider`) that exposes:
 - `src/agent/llm/factory.py` is the bootstrap boundary:
   - `resolve_provider_config(...)` resolves base URL/model/api key from flat inputs + optional provider overrides.
   - `create_provider(...)` validates provider/model compatibility and returns a concrete provider instance.
-- Delivery (CLI/TUI) constructs providers through the factory and injects them into core `Agent`.
+- Delivery shells construct providers through the factory and inject them into the runtime `Agent`.
 
 ## Built‑in providers
 

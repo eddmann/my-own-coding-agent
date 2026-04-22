@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from agent.core.settings import AgentSettings, ThinkingLevel
+from agent.runtime.settings import AgentSettings, ThinkingLevel
 
 
 @dataclass(slots=True)

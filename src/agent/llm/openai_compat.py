@@ -41,7 +41,7 @@ from agent.llm.retry import RetryConfig, with_retry
 from agent.llm.stream import AssistantMessageEventStream
 
 if TYPE_CHECKING:
-    from agent.core.message import Message
+    from agent.runtime.message import Message
 
 
 class LLMError(Exception):

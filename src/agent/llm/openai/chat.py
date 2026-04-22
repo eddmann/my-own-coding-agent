@@ -41,7 +41,7 @@ from .common import (
 )
 
 if TYPE_CHECKING:
-    from agent.core.message import Message
+    from agent.runtime.message import Message
 
 
 @dataclass(slots=True)

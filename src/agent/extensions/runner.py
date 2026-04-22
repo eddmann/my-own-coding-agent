@@ -19,9 +19,10 @@ from agent.extensions.types import (
 )
 
 if TYPE_CHECKING:
-    from agent.core.agent import Agent
-    from agent.core.events import AgentEvent
-    from agent.core.message import Message
+    from agent.extensions.host import ExtensionHost
+    from agent.runtime.events import AgentEvent
+    from agent.runtime.message import Message
+    from agent.runtime.session import Session
 
 
 class ExtensionRunner:
@@ -34,9 +35,9 @@ class ExtensionRunner:
     - Handles async and sync handlers uniformly
     """
 
-    def __init__(self, api: ExtensionAPI, agent: Agent) -> None:
+    def __init__(self, api: ExtensionAPI, host: ExtensionHost) -> None:
         self.api = api
-        self.agent = agent
+        self.host = host
 
     async def _call_handler(self, handler: Any, event: Any, ctx: ExtensionContext) -> Any:
         """Call a handler, handling both async and sync functions."""
@@ -45,12 +46,15 @@ class ExtensionRunner:
             return await result
         return result
 
-    async def emit_tool_call(self, event: ToolCallEvent) -> ToolCallResult | None:
+    async def emit_tool_call(
+        self,
+        event: ToolCallEvent,
+    ) -> ToolCallResult | None:
         """Emit tool_call event - returns first blocking result.
 
         Extensions can return ToolCallResult(block=True) to prevent execution.
         """
-        ctx = ExtensionContext(self.agent)
+        ctx = ExtensionContext(self.host)
         for handler in self.api.get_handlers("tool_call"):
             try:
                 result = await self._call_handler(handler, event, ctx)
@@ -61,12 +65,15 @@ class ExtensionRunner:
                 pass
         return None
 
-    async def emit_tool_result(self, event: ToolResultEvent) -> ToolResultModification | None:
+    async def emit_tool_result(
+        self,
+        event: ToolResultEvent,
+    ) -> ToolResultModification | None:
         """Emit tool_result event - allows modification of results.
 
         Extensions can return ToolResultModification to change content.
         """
-        ctx = ExtensionContext(self.agent)
+        ctx = ExtensionContext(self.host)
         modification: ToolResultModification | None = None
 
         for handler in self.api.get_handlers("tool_result"):
@@ -86,12 +93,15 @@ class ExtensionRunner:
 
         return modification
 
-    async def emit_context(self, messages: list[Message]) -> list[Message]:
+    async def emit_context(
+        self,
+        messages: list[Message],
+    ) -> list[Message]:
         """Emit context event - allows message modification before LLM call.
 
         Extensions can modify the message list sent to the LLM.
         """
-        ctx = ExtensionContext(self.agent)
+        ctx = ExtensionContext(self.host)
         current = list(messages)  # Copy to avoid mutating original
 
         for handler in self.api.get_handlers("context"):
@@ -105,12 +115,16 @@ class ExtensionRunner:
 
         return current
 
-    async def emit_input(self, text: str, source: str = "interactive") -> InputResult | None:
+    async def emit_input(
+        self,
+        text: str,
+        source: str = "interactive",
+    ) -> InputResult | None:
         """Emit input event - allows transformation or blocking of user input.
 
         Extensions can modify the input text or block it entirely.
         """
-        ctx = ExtensionContext(self.agent)
+        ctx = ExtensionContext(self.host)
         event = InputEvent(text=text, source=source)
         result_text = text
 
@@ -120,6 +134,8 @@ class ExtensionRunner:
                 if isinstance(result, InputResult):
                     if result.block:
                         return result  # Early exit on block
+                    if result.handled:
+                        return result
                     if result.text is not None:
                         result_text = result.text
                         event = InputEvent(text=result_text, source=source)
@@ -130,12 +146,17 @@ class ExtensionRunner:
             return InputResult(text=result_text)
         return None
 
-    async def emit_agent_event(self, event: AgentEvent) -> None:
+    async def emit_agent_event(
+        self,
+        event: AgentEvent,
+        *,
+        session: Session | None = None,
+    ) -> None:
         """Emit a general agent event to all subscribers.
 
         These events are informational - handlers cannot modify behavior.
         """
-        ctx = ExtensionContext(self.agent)
+        ctx = ExtensionContext(self.host, session=session)
         event_type = event.type
 
         handlers = self.api.get_handlers(event_type)
@@ -146,7 +167,11 @@ class ExtensionRunner:
         tasks = [self._call_handler(h, event, ctx) for h in handlers]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def execute_command(self, name: str, args: str) -> str | None:
+    async def execute_command(
+        self,
+        name: str,
+        args: str,
+    ) -> str | None:
         """Execute a registered slash command.
 
         Args:
@@ -160,7 +185,7 @@ class ExtensionRunner:
         if name not in commands:
             return None
 
-        ctx = ExtensionContext(self.agent)
+        ctx = ExtensionContext(self.host)
         handler = commands[name]
 
         result = handler(args, ctx)

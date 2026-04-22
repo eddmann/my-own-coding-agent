@@ -12,8 +12,8 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, ListItem, ListView, Static, Tree
 
-from agent.core.message import Role
-from agent.core.session import (
+from agent.runtime.message import Role
+from agent.runtime.session import (
     CompactionEntry,
     MessageEntry,
     ModelChangeEntry,

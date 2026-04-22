@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from agent.core.message import Message, Role, ToolCall
 from agent.llm.events import StreamOptions, TextBlock, ToolCallBlock
 from agent.llm.openai import OpenAIProvider
+from agent.runtime.message import Message, Role, ToolCall
 
 OPENAI_API_BASE_URL = "https://api.openai.com"
 

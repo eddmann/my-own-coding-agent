@@ -9,16 +9,15 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, RadioButton, RadioSet, Select, Static
 
-from agent.core.settings import ThinkingLevel, get_available_thinking_levels
 from agent.llm.models import get_model_info, resolve_capability_provider, supports_reasoning
+from agent.runtime.settings import ThinkingLevel, get_available_thinking_levels
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from textual.app import ComposeResult
 
-    from agent.core.settings import AgentSettings
-    from agent.llm.provider import LLMProvider
+    from agent.runtime.agent import Agent
 
 
 class ModelModal(ModalScreen[None]):
@@ -30,13 +29,11 @@ class ModelModal(ModalScreen[None]):
 
     def __init__(
         self,
-        config: AgentSettings,
-        provider: LLMProvider,
+        agent: Agent,
         on_change: Callable[[str | None, ThinkingLevel | None], None],
     ) -> None:
         super().__init__()
-        self._config = config
-        self._provider = provider
+        self._agent = agent
         self._on_change = on_change
         self._available_models: list[str] = []
         self._pending_model: str | None = None
@@ -49,8 +46,8 @@ class ModelModal(ModalScreen[None]):
                 # Model selection section
                 yield Static("[bold cyan]SELECT MODEL[/]", classes="section-header")
                 yield Select(
-                    [(self._provider.model, self._provider.model)],
-                    value=self._provider.model,
+                    [(self._agent.model_name, self._agent.model_name)],
+                    value=self._agent.model_name,
                     id="model-select",
                     allow_blank=False,
                 )
@@ -74,8 +71,8 @@ class ModelModal(ModalScreen[None]):
 
     def _build_thinking_radio(self) -> RadioSet:
         """Build thinking level radio set."""
-        provider_hint = resolve_capability_provider(self._provider.name)
-        available = get_available_thinking_levels(self._provider.model, provider=provider_hint)
+        provider_hint = resolve_capability_provider(self._agent.provider_name)
+        available = get_available_thinking_levels(self._agent.model_name, provider=provider_hint)
 
         buttons = []
         for level in ThinkingLevel:
@@ -96,8 +93,8 @@ class ModelModal(ModalScreen[None]):
         """Build summary of current and pending settings."""
         lines = []
 
-        current_model = self._provider.model
-        current_thinking = self._config.thinking_level
+        current_model = self._agent.model_name
+        current_thinking = self._agent.thinking_level
 
         new_model = self._pending_model or current_model
         new_thinking = self._pending_thinking or current_thinking
@@ -107,12 +104,12 @@ class ModelModal(ModalScreen[None]):
             reasoning_support = "Yes" if model_info.reasoning else "No"
             max_tokens = f"{model_info.max_output_tokens:,}"
         else:
-            provider_hint = resolve_capability_provider(self._provider.name)
+            provider_hint = resolve_capability_provider(self._agent.provider_name)
             reasoning = supports_reasoning(new_model, provider_hint)
             reasoning_support = "Yes" if reasoning else "No"
             max_tokens = "(unknown)"
 
-        lines.append(f"  Provider: {self._provider.name}")
+        lines.append(f"  Provider: {self._agent.provider_name}")
         lines.append(f"  Model: {new_model}")
         lines.append(f"  Thinking: {new_thinking.value}")
         lines.append(f"  Supports Reasoning: {reasoning_support}")
@@ -124,9 +121,9 @@ class ModelModal(ModalScreen[None]):
         """Fetch available models from provider and update dropdown."""
         select = self.query_one("#model-select", Select)
 
-        self._available_models = await self._provider.list_models()
+        self._available_models = await self._agent.list_models()
 
-        current = self._provider.model
+        current = self._agent.model_name
         options: list[tuple[str, str]] = []
 
         if self._available_models:
@@ -146,7 +143,7 @@ class ModelModal(ModalScreen[None]):
 
     async def _rebuild_thinking_radio(self, model: str) -> None:
         """Rebuild thinking radio for a new model."""
-        provider_hint = resolve_capability_provider(self._provider.name)
+        provider_hint = resolve_capability_provider(self._agent.provider_name)
         available = get_available_thinking_levels(model, provider=provider_hint)
 
         buttons = []
@@ -179,7 +176,7 @@ class ModelModal(ModalScreen[None]):
         """Handle model selection change."""
         if event.select.id == "model-select" and event.value:
             new_model = str(event.value)
-            if new_model != self._provider.model:
+            if new_model != self._agent.model_name:
                 self._pending_model = new_model
             else:
                 self._pending_model = None
